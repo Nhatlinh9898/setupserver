@@ -1,0 +1,97 @@
+---
+# Main Ansible Playbook cho Monolithic App
+# UI + Logic cùng trên một server
+
+- name: Setup App Servers (Monolithic)
+  hosts: appservers
+  become: yes
+  roles:
+    - web
+    - app
+
+- name: Setup Database Servers
+  hosts: dbservers
+  become: yes
+  roles:
+    - database
+
+- name: Deploy Application from Git
+  hosts: appservers
+  become: yes
+  roles:
+    - deploy
+  when: deploy_method | default('git') == 'git'
+
+- name: Deploy Application from Local
+  hosts: appservers
+  become: yes
+  roles:
+    - deploy-local
+  when: deploy_method | default('git') == 'local'
+
+- name: Install Dependencies
+  hosts: allservers
+  become: yes
+  roles:
+    - dependencies
+
+- name: Configure and Start Application
+  hosts: allservers
+  become: yes
+  roles:
+    - application
+
+- name: Setup Remote Management Tools
+  hosts: allservers
+  become: yes
+  roles:
+    - cockpit
+    - webmin
+    - monitoring
+    - portainer
+
+- name: Setup CUDA (GPU Support)
+  hosts: allservers
+  become: yes
+  roles:
+    - cuda
+  when: install_cuda | default(false)
+
+- name: Setup AI/ML Tools
+  hosts: allservers
+  become: yes
+  roles:
+    - ai-ml
+
+- name: Setup AI Security
+  hosts: allservers
+  become: yes
+  roles:
+    - ai-security
+
+- name: Setup App Hardening (LỚP 2: Rào chắn bảo vệ code/app)
+  hosts: allservers
+  become: yes
+  roles:
+    - app-hardening
+
+- name: Setup Container Isolation (LỚP 2B: Container Sandbox)
+  hosts: allservers
+  become: yes
+  roles:
+    - container-isolation
+
+- name: Setup AI Security Response (NHIỆM VỤ CHÍNH: SECURITY)
+  hosts: allservers
+  become: yes
+  roles:
+    - ai-security-response
+
+- name: Setup AI Ops
+  hosts: allservers
+  become: yes
+  roles:
+    - ai-chatops
+    - ai-monitoring
+    - ai-healing
+    - ai-assistant

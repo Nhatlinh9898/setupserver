@@ -1,0 +1,17 @@
+[Unit]
+Description=Ollama API Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ app_user | default('admin') }}
+Group={{ app_user | default('admin') }}
+ExecStart=/usr/local/bin/ollama serve --host 0.0.0.0 --port {{ ollama_api_port | default(11434) }}
+Restart=always
+RestartSec=5
+Environment=OLLAMA_MODELS=/opt/models/ollama
+Environment=OLLAMA_HOST=0.0.0.0:{{ ollama_api_port | default(11434) }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[program:{{ app_name | default('flask-app') }}]
+command={{ project_path }}/venv/bin/gunicorn {{ flask_app_module | default('app:app') }} --bind 0.0.0.0:{{ app_port | default(5000) }}
+directory={{ project_path }}
+user={{ app_user }}
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile={{ project_path }}/logs/supervisor.log
+environment=PATH="{{ project_path }}/venv/bin"

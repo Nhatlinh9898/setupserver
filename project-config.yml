@@ -1,0 +1,234 @@
+---
+# Project Configuration File
+# File này dùng để cấu hình dự án của bạn cho việc deploy tự động
+# Copy file này và chỉnh sửa theo nhu cầu của bạn
+
+# Phương pháp deploy: git hoặc local
+deploy_method: "git"  # "git" để clone từ Git, "local" để copy từ local directory
+
+# Thông tin Git Repository (chỉ dùng khi deploy_method = "git")
+git_repository: "https://github.com/yourusername/your-repo.git"  # URL repository của bạn
+git_branch: "main"  # Branch để deploy
+# git_ssh_private_key: "-----BEGIN OPENSSH PRIVATE KEY-----..."  # Private key cho repo private (nếu cần)
+# git_password: "your_password"  # Password cho repo private (không khuyến khích)
+
+# Thông tin Local Code (chỉ dùng khi deploy_method = "local")
+# local_code_path: "./app-code"  # Đường dẫn đến code trên máy local (tương đối với thư mục playbook)
+
+# Thông tin Project (Monolithic App - UI + Logic cùng một server)
+app_name: "my-app"  # Tên ứng dụng
+app_user: "admin"  # User chạy ứng dụng
+project_path: "/opt/apps/my-app"  # Đường dẫn đến project trên server
+app_port: 3000  # Port ứng dụng
+
+# Cấu hình cho Monolithic App (UI + Logic cùng một place)
+# Loại bỏ cấu hình frontend/backend riêng biệt
+app_type: "nodejs"  # nodejs, python, php, go, java, rails, django
+app_framework: "express"  # express, flask, django, rails, laravel, v.v.
+
+# Cấu hình cho TypeScript + Vite + React + Node.js
+use_typescript: true  # App sử dụng TypeScript
+use_vite: true  # Frontend dùng Vite build tool
+use_prisma: true  # Sử dụng Prisma ORM
+use_firebase: true  # Sử dụng Firebase
+
+# Environment Variables (cho Monolithic App)
+env_vars:
+  NODE_ENV: "production"
+  PORT: "3000"
+  # Database connection (Prisma)
+  DATABASE_URL: "postgresql://dbuser:password@192.168.1.200:5432/mydb"
+  # Hoặc database local (nếu cùng server)
+  # DATABASE_URL: "postgresql://dbuser:password@localhost:5432/mydb"
+  # Firebase Configuration
+  FIREBASE_API_KEY: "your-firebase-api-key"
+  FIREBASE_AUTH_DOMAIN: "your-project.firebaseapp.com"
+  FIREBASE_PROJECT_ID: "your-project-id"
+  FIREBASE_STORAGE_BUCKET: "your-project.appspot.com"
+  FIREBASE_MESSAGING_SENDER_ID: "your-sender-id"
+  FIREBASE_APP_ID: "your-app-id"
+  # Thêm các biến môi trường khác ở đây
+
+# Hoặc sử dụng env_content để paste trực tiếp
+# env_content: |
+#   NODE_ENV=production
+#   PORT=3000
+#   DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+
+# Cấu hình Node.js
+node_env: "production"
+node_script: "server.ts"  # File chính để chạy (server.ts cho TypeScript)
+node_instances: 1  # Số instances (cluster mode)
+node_exec_mode: "fork"  # fork hoặc cluster
+node_max_memory: "1G"  # Memory limit cho mỗi instance
+npm_build: true  # Chạy npm run build sau khi cài dependencies (cho Vite)
+npm_build_command: "npm run build"  # Command build (Vite: npm run build)
+use_pm2: true  # Sử dụng PM2 để quản lý Node.js app
+use_ts_node: true  # Sử dụng ts-node để chạy TypeScript trực tiếp (hoặc build trước)
+
+# Cấu hình Python
+python_command: "gunicorn"  # Command để chạy Python app
+python_app_module: "app:app"  # Module:variable (cho Flask/Django)
+
+# Cấu hình Django
+django_settings_module: "myproject.settings"  # Django settings module
+django_wsgi_module: "myproject.wsgi:application"  # WSGI module
+
+# Cấu hình Flask
+flask_app_module: "app:app"  # Flask app module
+
+# Cấu hình PHP
+php_version: "8.1"  # Phiên bản PHP
+domain_name: "example.com"  # Domain name cho Nginx config
+
+# Cấu hình Rails
+rails_env: "production"
+puma_workers: 2
+puma_threads_min: 0
+puma_threads_max: 16
+
+# Cấu hình Go
+# Không cần cấu hình thêm, sẽ tự động detect main.go
+
+# Cấu hình Docker
+docker_image_name: "my-app"
+docker_image_tag: "latest"
+# docker_compose: true  # Sử dụng docker-compose nếu có docker-compose.yml
+
+# Cấu hình Database
+install_mysql: true
+install_postgresql: false
+mysql_database: "mydb"
+mysql_user: "dbuser"
+mysql_password: "change_this_password"  # ĐỔI PASSWORD NÀY!
+
+# Cấu hình Prisma ORM
+prisma_generate: true  # Chạy prisma generate sau khi cài dependencies
+prisma_migrate: true  # Chạy prisma migrate deploy
+prisma_seed: false  # Chạy prisma db seed (nếu có seed file)
+prisma_schema_path: "./prisma/schema.prisma"  # Đường dẫn đến schema file
+
+# Cấu hình Web Server
+install_apache: false  # Set true nếu muốn dùng Apache thay vì Nginx
+
+# Cấu hình Application
+create_systemd_service: false  # Tạo systemd service cho generic app
+systemd_command: "./start.sh"  # Command để start app
+systemd_env_vars: "NODE_ENV=production"  # Environment variables cho systemd
+
+# Health Check
+health_check_enabled: true
+health_check_path: "/health"
+health_check_status: 200
+
+# Tùy chọn khác
+create_upload_dir: false  # Tạo directory uploads
+composer_no_dev: true  # Không cài dev dependencies cho Composer
+bundler_deployment: true  # Deployment mode cho Bundler
+
+# Cấu hình Firewall
+allow_ssh_ip: "0.0.0.0/0"  # Giới hạn IP cho SSH nếu cần
+
+# Cấu hình Cockpit (Web Interface quản lý server)
+cockpit_allow_remote: false  # Cho phép remote connections
+cockpit_ssl_enabled: true  # Bật SSL/TLS
+cockpit_create_user: false  # Tạo user riêng cho Cockpit
+cockpit_user: "cockpitadmin"  # Username cho Cockpit
+cockpit_password: "$6$rounds=4096$xyz$change_this_password"  # Password hash cho Cockpit
+
+# Cấu hình Webmin (Web Interface quản lý hệ thống)
+webmin_install_modules: false  # Cài đặt thêm các Webmin modules
+
+# Cấu hình Monitoring (Grafana + Prometheus)
+prometheus_version: "2.45.0"  # Phiên bản Prometheus
+node_exporter_version: "1.6.0"  # Phiên bản Node Exporter
+grafana_version: "10.0.0"  # Phiên bản Grafana
+grafana_admin_user: "admin"  # Admin user cho Grafana
+grafana_admin_password: "admin"  # ĐỔI PASSWORD NÀY!
+grafana_domain: "localhost"  # Domain cho Grafana
+grafana_anonymous_enabled: false  # Cho phép anonymous access
+grafana_org_name: "Main Org."  # Tên organization
+grafana_anonymous_role: "Viewer"  # Role cho anonymous user
+grafana_log_level: "info"  # Log level
+grafana_config_datasource: true  # Tự động cấu hình Prometheus datasource
+
+# Cấu hình Portainer (Docker Management Web Interface)
+portainer_version: "latest"  # Phiên bản Portainer
+portainer_http_enabled: false  # Bật HTTP port 9000 (không khuyến khích)
+
+# Cấu hình AI/ML Tools
+install_ollama: true  # Cài đặt Ollama
+ollama_models:  # Models để pull với Ollama
+  - "llama2"
+  - "mistral"
+  - "codellama"
+ollama_api_enabled: true  # Bật Ollama API server
+ollama_api_port: 11434  # Port cho Ollama API
+
+install_python_ml: false  # Cài đặt Python ML libraries (PyTorch, TensorFlow, v.v.)
+install_python_llm: false  # Cài đặt Python LLM libraries (LangChain, Transformers, v.v.)
+install_nodejs_ml: false  # Cài đặt Node.js ML libraries
+install_stable_diffusion: false  # Cài đặt Stable Diffusion WebUI
+install_text_generation_webui: false  # Cài đặt Text Generation WebUI
+install_whisper: false  # Cài đặt Whisper (Speech-to-Text)
+install_tts: false  # Cài đặt TTS (Text-to-Speech)
+install_rag_tools: false  # Cài đặt RAG tools (LlamaIndex, ChromaDB, v.v.)
+
+# Cấu hình CUDA (GPU support)
+install_cuda: false  # Cài đặt NVIDIA CUDA toolkit (cần GPU NVIDIA)
+cuda_version: "12-1"  # Phiên bản CUDA
+nvidia_driver_version: "535"  # Phiên bản NVIDIA driver
+install_cudnn: false  # Cài đặt cuDNN (cần URL download)
+cudnn_url: ""  # URL để download cuDNN (từ NVIDIA developer)
+install_pytorch_cuda: false  # Cài đặt PyTorch với CUDA support
+cuda_version_short: "121"  # Phiên bản CUDA short (cho PyTorch)
+
+# Cấu hình AI Ops (AI tự vận hành server)
+install_ai_chatops: false  # Chat với AI để quản lý server
+chatops_service_enabled: false  # Bật ChatOps service
+chatops_model: "llama2"  # Model cho ChatOps
+
+install_ai_monitoring: false  # AI phân tích logs và metrics tự động
+ai_monitoring_enabled: false  # Bật AI Monitoring service
+ai_monitoring_model: "llama2"  # Model cho AI Monitoring
+ai_monitoring_interval: 300  # Kiểm tra mỗi 300 giây (5 phút)
+
+install_ai_healing: false  # Auto-healing với AI
+ai_healing_enabled: false  # Bật AI Healing service
+ai_healing_model: "llama2"  # Model cho AI Healing
+ai_healing_interval: 60  # Kiểm tra mỗi 60 giây (1 phút)
+ai_healing_auto_enabled: false  # Bật auto-healing tự động (CẢNH BÁO: AI sẽ tự động restart services) - LUÔN ĐỂ FALSE
+
+install_ai_assistant: false  # AI assistant với RAG
+ai_assistant_model: "llama2"  # Model cho AI Assistant
+
+# Cấu hình AI Security Response - AI tự động phát hiện và phản hồi tấn công mạng
+install_ai_security_response: true  # Cài đặt AI Security Response (NHIỆM VỤ CHÍNH: SECURITY)
+ai_security_response_enabled: true  # Bật AI Security Response service
+ai_security_response_model: "llama2"  # Model cho AI Security Response
+ai_security_response_interval: 30  # Kiểm tra mỗi 30 giây
+ai_security_response_auto_enabled: true  # Bật auto-response tự động (AI sẽ tự động phản hồi tấn công)
+ai_security_response_admin_ip: "0.0.0.0/0"  # IP của admin để cho phép SSH khi isolate server
+
+# Cấu hình App Hardening - Bảo vệ code và app (LỚP 2: Rào chắn bảo vệ)
+install_app_hardening: true  # Cài đặt App Hardening
+app_hardening_enabled: true  # Bật App Hardening service
+app_hardening_immutable: true  # Làm code read-only (immutable)
+app_hardening_integrity_check: true  # Kiểm tra integrity thường xuyên
+app_hardening_snapshots: true  # Tạo snapshots tự động
+app_hardening_max_snapshots: 10  # Số snapshots tối đa
+
+# Cấu hình Container Isolation - Chạy app trong container (LỚP 2B: Container Sandbox)
+install_container_isolation: true  # Cài đặt Container Isolation
+container_monitor_enabled: true  # Bật Container Monitor service
+docker_base_image: "python:3.9-slim"  # Base image cho container
+container_cpu_limit: "1.0"  # CPU limit cho container
+container_memory_limit: "512M"  # Memory limit cho container
+container_cpu_reservation: "0.5"  # CPU reservation
+container_memory_reservation: "256M"  # Memory reservation
+container_subnet: "172.20.0.0/16"  # Subnet cho container network
+container_uid: "1000"  # User ID trong container
+container_gid: "1000"  # Group ID trong container
+
+# Load Balancer (chỉ dùng khi có nhiều app servers)
+# install_loadbalancer: false  # Bật nếu cần load balancing cho nhiều app servers

@@ -1,0 +1,96 @@
+---
+# Cockpit Role - Cài đặt Cockpit Web Interface
+
+- name: Cài đặt Cockpit (Ubuntu/Debian)
+  apt:
+    name:
+      - cockpit
+      - cockpit-system
+      - cockpit-networkmanager
+      - cockpit-storaged
+      - cockpit-packagekit
+      - cockpit-podman
+      - cockpit-docker
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+  notify: restart cockpit
+
+- name: Cài đặt Cockpit (CentOS/RHEL)
+  yum:
+    name:
+      - cockpit
+      - cockpit-system
+      - cockpit-networkmanager
+      - cockpit-storaged
+      - cockpit-packagekit
+      - cockpit-podman
+      - cockpit-machines
+    state: present
+  when: ansible_os_family == "RedHat"
+  notify: restart cockpit
+
+- name: Enable Cockpit service
+  systemd:
+    name: cockpit.socket
+    enabled: yes
+    state: started
+
+- name: Mở port Cockpit trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "9090"
+    proto: tcp
+  when: ansible_os_family == "Debian"
+
+- name: Mở port Cockpit trên firewall (CentOS)
+  firewalld:
+    service: cockpit
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+- name: Cấu hình Cockpit để cho phép remote connections
+  lineinfile:
+    path: /etc/cockpit/cockpit.conf
+    line: "Origins = https://cockpit-apps.s3.amazonaws.com https://10.0.0.0/8"
+    create: yes
+  when: cockpit_allow_remote | default(false)
+
+- name: Cấu hình Cockpit SSL/TLS
+  template:
+    src: cockpit.conf.j2
+    dest: /etc/cockpit/cockpit.conf
+    mode: '0644'
+  when: cockpit_ssl_enabled | default(true)
+  notify: restart cockpit
+
+- name: Tạo Cockpit admin user
+  user:
+    name: "{{ cockpit_user | default('cockpitadmin') }}"
+    password: "{{ cockpit_password | default('$6$rounds=4096$xyz$change_this_password') }}"
+    shell: /bin/bash
+    groups: sudo,wheel
+    append: yes
+  when: cockpit_create_user | default(false)
+
+- name: Thêm Cockpit admin user vào sudoers
+  lineinfile:
+    path: /etc/sudoers.d/cockpit
+    line: "{{ cockpit_user | default('cockpitadmin') }} ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  when: cockpit_create_user | default(false)
+
+handlers:
+  - name: restart cockpit
+    systemd:
+      name: cockpit.socket
+      state: restarted
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

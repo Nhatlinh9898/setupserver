@@ -1,0 +1,212 @@
+---
+# AI ChatOps Role - Chat với AI để quản lý server
+
+- name: Cài đặt Python dependencies cho ChatOps
+  pip:
+    name:
+      - langchain
+      - langchain-community
+      - langchain-ollama
+      - rich
+      - python-dotenv
+      - requests
+    state: present
+    executable: pip3
+  when: install_ai_chatops | default(false)
+
+- name: Tạo directory cho ChatOps
+  file:
+    path: /opt/ai-chatops
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy ChatOps script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI ChatOps - Chat với AI để quản lý server
+      """
+      import os
+      import subprocess
+      import json
+      from langchain_ollama import OllamaLLM
+      from langchain.prompts import ChatPromptTemplate
+      from langchain.schema import HumanMessage, SystemMessage
+
+      # Configuration
+      OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
+      OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+
+      class ServerManager:
+          def __init__(self):
+              self.llm = OllamaLLM(
+                  model=OLLAMA_MODEL,
+                  base_url=f"http://{OLLAMA_HOST}"
+              )
+
+          def execute_command(self, command):
+              """Thực hiện lệnh shell và trả về kết quả"""
+              try:
+                  result = subprocess.run(
+                      command,
+                      shell=True,
+                      capture_output=True,
+                      text=True,
+                      timeout=30
+                  )
+                  return {
+                      "success": result.returncode == 0,
+                      "stdout": result.stdout,
+                      "stderr": result.stderr
+                  }
+              except Exception as e:
+                  return {
+                      "success": False,
+                      "stdout": "",
+                      "stderr": str(e)
+                  }
+
+          def get_system_status(self):
+              """Lấy trạng thái hệ thống"""
+              status = {}
+              
+              # CPU
+              cpu = self.execute_command("top -bn1 | grep 'Cpu(s)'")
+              status["cpu"] = cpu["stdout"].strip()
+              
+              # Memory
+              mem = self.execute_command("free -h")
+              status["memory"] = mem["stdout"].strip()
+              
+              # Disk
+              disk = self.execute_command("df -h")
+              status["disk"] = disk["stdout"].strip()
+              
+              # Services
+              services = self.execute_command("systemctl list-units --type=service --state=running")
+              status["services"] = services["stdout"].strip()
+              
+              return status
+
+          def manage_service(self, action, service):
+              """Quản lý services (start, stop, restart)"""
+              return self.execute_command(f"systemctl {action} {service}")
+
+          def check_logs(self, service, lines=50):
+              """Kiểm tra logs của service"""
+              return self.execute_command(f"journalctl -u {service} -n {lines} --no-pager")
+
+          def get_ai_response(self, query, context=""):
+              """Lấy phản hồi từ AI"""
+              system_prompt = """Bạn là một AI assistant chuyên quản lý Linux server. 
+              Bạn có thể giúp người dùng quản lý server bằng cách:
+              - Phân tích trạng thái hệ thống
+              - Gợi ý các lệnh để quản lý server
+              - Giải thích lỗi và đề xuất giải pháp
+              - Trả lời câu hỏi về server
+              
+              Hãy trả lời ngắn gọn, chính xác và hữu ích."""
+              
+              messages = [
+                  SystemMessage(content=system_prompt),
+                  HumanMessage(content=f"Context: {context}\n\nQuestion: {query}")
+              ]
+              
+              response = self.llm.invoke(messages)
+              return response
+
+      def main():
+          print("🤖 AI ChatOps - Server Management Assistant")
+          print("=" * 50)
+          
+          manager = ServerManager()
+          
+          while True:
+              try:
+                  user_input = input("\n💬 Bạn: ").strip()
+                  
+                  if user_input.lower() in ['exit', 'quit', 'bye']:
+                      print("👋 Tạm biệt!")
+                      break
+                  
+                  if user_input.lower() == 'status':
+                      status = manager.get_system_status()
+                      print("\n📊 System Status:")
+                      print(f"CPU: {status['cpu']}")
+                      print(f"Memory:\n{status['memory']}")
+                      print(f"Disk:\n{status['disk']}")
+                      continue
+                  
+                  if user_input.lower().startswith('service '):
+                      parts = user_input.split()
+                      if len(parts) >= 2:
+                          action = parts[1]
+                          service = parts[2] if len(parts) > 2 else ""
+                          if service:
+                              result = manager.manage_service(action, service)
+                              print(f"\n🔧 {action} {service}:")
+                              print(f"Success: {result['success']}")
+                              if result['stdout']:
+                                  print(f"Output: {result['stdout']}")
+                              if result['stderr']:
+                                  print(f"Error: {result['stderr']}")
+                              continue
+                  
+                  if user_input.lower().startswith('logs '):
+                      parts = user_input.split()
+                      service = parts[1] if len(parts) > 1 else ""
+                      if service:
+                          result = manager.check_logs(service)
+                          print(f"\n📝 Logs for {service}:")
+                          print(result['stdout'])
+                          continue
+                  
+                  # Lấy phản hồi từ AI
+                  context = json.dumps(manager.get_system_status(), indent=2)
+                  response = manager.get_ai_response(user_input, context)
+                  print(f"\n🤖 AI: {response}")
+                  
+              except KeyboardInterrupt:
+                  print("\n👋 Tạm biệt!")
+                  break
+              except Exception as e:
+                  print(f"\n❌ Lỗi: {e}")
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-chatops/chatops.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_chatops | default(false)
+
+- name: Tạo systemd service cho ChatOps
+  template:
+    src: chatops.service.j2
+    dest: /etc/systemd/system/ai-chatops.service
+    mode: '0644'
+  when: install_ai_chatops | default(false)
+  notify: restart chatops
+
+- name: Enable ChatOps service
+  systemd:
+    name: ai-chatops
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ai_chatops | default(false) and chatops_service_enabled | default(false)
+
+- name: Tạo alias cho chatops
+  lineinfile:
+    path: /home/{{ app_user | default('admin') }}/.bashrc
+    line: "alias chatops='python3 /opt/ai-chatops/chatops.py'"
+  when: install_ai_chatops | default(false)
+
+handlers:
+  - name: restart chatops
+    systemd:
+      name: ai-chatops
+      state: restarted

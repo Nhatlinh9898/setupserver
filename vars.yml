@@ -1,0 +1,31 @@
+---
+# Ansible Variables Example
+# Copy file này thành vars.yml và chỉnh sửa theo nhu cầu của bạn
+
+# Web Server Configuration
+install_apache: false  # Set to true để cài Apache thay vì Nginx
+
+# Database Configuration
+install_mysql: true  # Set to true để cài MySQL
+install_postgresql: false  # Set to true để cài PostgreSQL
+
+# MySQL Configuration
+mysql_database: appdb
+mysql_user: appuser
+mysql_password: password123  # Đổi password này!
+
+# PostgreSQL Configuration
+postgresql_database: appdb
+postgresql_user: appuser
+postgresql_password: password123  # Đổi password này!
+
+# Application Server Configuration
+install_nodejs: false  # Set to true để cài Node.js
+install_docker: true  # Set to true để cài Docker
+
+# Domain Configuration (cho Nginx)
+domain_name: example.com
+ssl_enabled: false  # Set to true sau khi có SSL certificate
+
+# Firewall Configuration
+allow_ssh_ip: "0.0.0.0/0"  # Giới hạn IP cho SSH nếu cần

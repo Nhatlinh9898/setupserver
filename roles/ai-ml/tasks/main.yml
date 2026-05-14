@@ -1,0 +1,197 @@
+---
+# AI/ML Role - Cài đặt Ollama và các AI/ML tools
+
+# Cài đặt Ollama
+- name: Tải và cài đặt Ollama
+  shell: |
+    curl -fsSL https://ollama.com/install.sh | sh
+  args:
+    creates: /usr/local/bin/ollama
+  when: install_ollama | default(true)
+
+- name: Enable Ollama service
+  systemd:
+    name: ollama
+    enabled: yes
+    state: started
+  when: install_ollama | default(true)
+
+- name: Pull Ollama models
+  shell: "ollama pull {{ item }}"
+  loop: "{{ ollama_models | default(['llama2', 'mistral']) }}"
+  when: install_ollama | default(true)
+  ignore_errors: yes
+
+- name: Tạo Ollama API service
+  template:
+    src: ollama.service.j2
+    dest: /etc/systemd/system/ollama-api.service
+    mode: '0644'
+  when: install_ollama | default(true) and ollama_api_enabled | default(true)
+  notify: restart ollama-api
+
+- name: Enable Ollama API service
+  systemd:
+    name: ollama-api
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ollama | default(true) and ollama_api_enabled | default(true)
+
+- name: Mở port Ollama API trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ ollama_api_port | default(11434) }}"
+    proto: tcp
+  when: ansible_os_family == "Debian" and install_ollama | default(true) and ollama_api_enabled | default(true)
+
+- name: Mở port Ollama API trên firewall (CentOS)
+  firewalld:
+    port: "{{ ollama_api_port | default(11434) }}/tcp"
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and install_ollama | default(true) and ollama_api_enabled | default(true)
+  notify: reload firewalld
+
+# Cài đặt Python AI/ML libraries
+- name: Cài đặt Python AI/ML libraries
+  pip:
+    name:
+      - torch
+      - torchvision
+      - torchaudio
+      - transformers
+      - diffusers
+      - accelerate
+      - datasets
+      - scikit-learn
+      - pandas
+      - numpy
+      - matplotlib
+      - seaborn
+      - jupyter
+      - jupyterlab
+      - tensorflow
+      - keras
+    state: present
+    executable: pip3
+  when: install_python_ml | default(false)
+  ignore_errors: yes
+
+- name: Cài đặt additional Python ML libraries
+  pip:
+    name:
+      - langchain
+      - openai
+      - anthropic
+      - sentence-transformers
+      - faiss-cpu
+      - chromadb
+      - pinecone-client
+      - weaviate-client
+      - qdrant-client
+    state: present
+    executable: pip3
+  when: install_python_ml | default(false) and install_python_llm | default(false)
+  ignore_errors: yes
+
+# Cài đặt Node.js AI libraries
+- name: Cài đặt Node.js AI libraries
+  npm:
+    name: "@xenova/transformers"
+    global: yes
+    state: present
+  when: install_nodejs_ml | default(false)
+  ignore_errors: yes
+
+# Cài đặt Stable Diffusion WebUI
+- name: Clone Stable Diffusion WebUI
+  git:
+    repo: https://github.com/AUTOMATIC1111/stable-diffusion-webui
+    dest: /opt/stable-diffusion-webui
+    version: master
+  when: install_stable_diffusion | default(false)
+  become_user: "{{ app_user | default('admin') }}"
+
+- name: Cài đặt dependencies cho Stable Diffusion
+  pip:
+    requirements: /opt/stable-diffusion-webui/requirements.txt
+    virtualenv: /opt/stable-diffusion-webui/venv
+    state: present
+  when: install_stable_diffusion | default(false)
+  ignore_errors: yes
+
+# Cài đặt Text Generation WebUI
+- name: Clone Text Generation WebUI
+  git:
+    repo: https://github.com/oobabooga/text-generation-webui
+    dest: /opt/text-generation-webui
+    version: main
+  when: install_text_generation_webui | default(false)
+  become_user: "{{ app_user | default('admin') }}"
+
+# Cài đặt Whisper (Speech-to-Text)
+- name: Cài đặt Whisper
+  pip:
+    name:
+      - openai-whisper
+      - faster-whisper
+    state: present
+    executable: pip3
+  when: install_whisper | default(false)
+
+# Cài đặt TTS (Text-to-Speech)
+- name: Cài đặt TTS
+  pip:
+    name:
+      - TTS
+      - coqui-tts
+    state: present
+    executable: pip3
+  when: install_tts | default(false)
+
+# Cài đặt RAG tools
+- name: Cài đặt RAG tools
+  pip:
+    name:
+      - llama-index
+      - langchain-community
+      - chromadb
+      - faiss-cpu
+    state: present
+    executable: pip3
+  when: install_rag_tools | default(false)
+
+# Tạo directory cho AI models
+- name: Tạo directory cho AI models
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  loop:
+    - /opt/models
+    - /opt/models/ollama
+    - /opt/models/huggingface
+    - /opt/models/custom
+
+- name: Cấu hình environment cho AI/ML
+  lineinfile:
+    path: /etc/environment
+    line: "{{ item }}"
+  loop:
+    - "TRANSFORMERS_CACHE=/opt/models/huggingface"
+    - "HF_HOME=/opt/models/huggingface"
+    - "OLLAMA_MODELS=/opt/models/ollama"
+
+handlers:
+  - name: restart ollama-api
+    systemd:
+      name: ollama-api
+      state: restarted
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

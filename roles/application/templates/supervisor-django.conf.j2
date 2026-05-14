@@ -1,0 +1,9 @@
+[program:{{ app_name | default('django-app') }}]
+command={{ project_path }}/venv/bin/gunicorn {{ django_wsgi_module | default('myproject.wsgi:application') }} --bind 0.0.0.0:{{ app_port | default(8000) }}
+directory={{ project_path }}
+user={{ app_user }}
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile={{ project_path }}/logs/supervisor.log
+environment=DJANGO_SETTINGS_MODULE="{{ django_settings_module | default('myproject.settings') }}",PATH="{{ project_path }}/venv/bin"

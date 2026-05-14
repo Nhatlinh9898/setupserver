@@ -1,0 +1,50 @@
+# Ansible
+*.retry
+/tmp/ansible_facts/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Passwords và sensitive data
+*.secret
+*.password
+credentials.yml
+vault.yml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Temporary files
+tmp/
+temp/

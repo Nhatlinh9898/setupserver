@@ -1,0 +1,293 @@
+---
+# AI Assistant Role - AI assistant với RAG để trả lời câu hỏi về server
+
+- name: Cài đặt Python dependencies cho AI Assistant
+  pip:
+    name:
+      - langchain
+      - langchain-community
+      - langchain-ollama
+      - llama-index
+      - chromadb
+      - python-dotenv
+    state: present
+    executable: pip3
+  when: install_ai_assistant | default(false)
+
+- name: Tạo directory cho AI Assistant
+  file:
+    path: /opt/ai-assistant
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo knowledge base directory
+  file:
+    path: /opt/ai-assistant/knowledge
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_assistant | default(false)
+
+- name: Copy AI Assistant script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI Assistant - AI assistant với RAG để trả lời câu hỏi về server
+      """
+      import os
+      import subprocess
+      import json
+      from datetime import datetime
+      from langchain_ollama import OllamaLLM
+      from langchain.schema import HumanMessage, SystemMessage
+      from llama_index import VectorStoreIndex, SimpleDirectoryReader
+      from llama_index.llms.ollama import Ollama
+      from llama_index.embeddings.ollama import OllamaEmbedding
+
+      # Configuration
+      OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
+      OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+      KNOWLEDGE_DIR = "/opt/ai-assistant/knowledge"
+
+      class AIAssistant:
+          def __init__(self):
+              self.llm = OllamaLLM(
+                  model=OLLAMA_MODEL,
+                  base_url=f"http://{OLLAMA_HOST}"
+              )
+              self.index = None
+              self.load_knowledge_base()
+
+          def load_knowledge_base(self):
+              """Load knowledge base từ documents"""
+              try:
+                  # Đọc documents từ knowledge directory
+                  if os.path.exists(KNOWLEDGE_DIR):
+                      documents = SimpleDirectoryReader(KNOWLEDGE_DIR).load_data()
+                      
+                      # Tạo embedding model
+                      embed_model = OllamaEmbedding(
+                          model_name="nomic-embed-text",
+                          base_url=f"http://{OLLAMA_HOST}"
+                      )
+                      
+                      # Tạo index
+                      self.index = VectorStoreIndex.from_documents(
+                          documents,
+                          embed_model=embed_model
+                      )
+                      print("✅ Knowledge base loaded successfully")
+                  else:
+                      print("⚠️ Knowledge directory not found, using basic mode")
+              except Exception as e:
+                  print(f"⚠️ Error loading knowledge base: {e}")
+
+          def get_server_info(self):
+              """Lấy thông tin server"""
+              info = {}
+              
+              # System info
+              info["hostname"] = subprocess.getoutput("hostname")
+              info["os"] = subprocess.getoutput("cat /etc/os-release | grep PRETTY_NAME")
+              info["kernel"] = subprocess.getoutput("uname -r")
+              
+              # CPU info
+              info["cpu"] = subprocess.getoutput("lscpu | grep 'Model name'")
+              
+              # Memory info
+              info["memory"] = subprocess.getoutput("free -h")
+              
+              # Disk info
+              info["disk"] = subprocess.getoutput("df -h")
+              
+              # Network info
+              info["network"] = subprocess.getoutput("ip addr show")
+              
+              # Services
+              info["services"] = subprocess.getoutput("systemctl list-units --type=service --state=running | head -20")
+              
+              return info
+
+          def ask_with_rag(self, question):
+              """Hỏi với RAG (nếu knowledge base có sẵn)"""
+              if self.index:
+                  try:
+                      query_engine = self.index.as_query_engine()
+                      response = query_engine.query(question)
+                      return str(response)
+                  except Exception as e:
+                      return f"Error with RAG: {e}"
+              else:
+                  return None
+
+          def ask_basic(self, question, context):
+              """Hỏi với basic LLM (không RAG)"""
+              system_prompt = """Bạn là một AI assistant chuyên về Linux server management.
+              Bạn có thể trả lời các câu hỏi về:
+              - Cấu hình server
+              - Troubleshooting
+              - Best practices
+              - Security
+              - Performance optimization
+              
+              Hãy trả lời chi tiết và hữu ích."""
+              
+              messages = [
+                  SystemMessage(content=system_prompt),
+                  HumanMessage(content=f"Context: {context}\n\nQuestion: {question}")
+              ]
+              
+              response = self.llm.invoke(messages)
+              return response
+
+          def chat(self):
+              """Chat interface"""
+              print("🤖 AI Assistant - Server Knowledge Base")
+              print("=" * 50)
+              print("Nhập câu hỏi của bạn về server (hoặc 'exit' để thoát)")
+              
+              while True:
+                  try:
+                      user_input = input("\n❓ Bạn: ").strip()
+                      
+                      if user_input.lower() in ['exit', 'quit', 'bye']:
+                          print("👋 Tạm biệt!")
+                          break
+                      
+                      # Thử RAG trước
+                      rag_response = self.ask_with_rag(user_input)
+                      
+                      if rag_response:
+                          print(f"\n🤖 AI (RAG): {rag_response}")
+                      else:
+                          # Nếu không có RAG, dùng basic mode
+                          server_info = self.get_server_info()
+                          context = json.dumps(server_info, indent=2)
+                          basic_response = self.ask_basic(user_input, context[:2000])
+                          print(f"\n🤖 AI: {basic_response}")
+                      
+                  except KeyboardInterrupt:
+                      print("\n👋 Tạm biệt!")
+                      break
+                  except Exception as e:
+                      print(f"\n❌ Lỗi: {e}")
+
+          def add_document(self, file_path):
+              """Thêm document vào knowledge base"""
+              try:
+                  documents = SimpleDirectoryReader(file_path).load_data()
+                  if self.index:
+                      self.index.insert(documents)
+                      print(f"✅ Document added: {file_path}")
+                  else:
+                      print("⚠️ Index not initialized")
+              except Exception as e:
+                  print(f"❌ Error adding document: {e}")
+
+      def main():
+          assistant = AIAssistant()
+          assistant.chat()
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-assistant/assistant.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_assistant | default(false)
+
+- name: Copy sample knowledge documents
+  copy:
+    content: |
+      # Server Management Guide
+      
+      ## Basic Commands
+      
+      ### System Information
+      - `uname -a`: Show system information
+      - `hostname`: Show hostname
+      - `df -h`: Show disk usage
+      - `free -h`: Show memory usage
+      - `top`: Show running processes
+      
+      ### Service Management
+      - `systemctl start service`: Start a service
+      - `systemctl stop service`: Stop a service
+      - `systemctl restart service`: Restart a service
+      - `systemctl status service`: Check service status
+      - `systemctl enable service`: Enable service at boot
+      - `systemctl disable service`: Disable service at boot
+      
+      ### Log Management
+      - `journalctl -u service`: View logs for a service
+      - `journalctl -f`: Follow logs in real-time
+      - `journalctl -p err`: View error logs
+      - `tail -f /var/log/syslog`: Follow system log
+      
+      ### Network Management
+      - `ip addr show`: Show network interfaces
+      - `ip route show`: Show routing table
+      - `netstat -tulpn`: Show listening ports
+      - `ss -tulpn`: Show socket statistics
+      
+      ### Firewall Management (Ubuntu)
+      - `ufw status`: Show firewall status
+      - `ufw enable`: Enable firewall
+      - `ufw disable`: Disable firewall
+      - `ufw allow port`: Allow port
+      - `ufw deny port`: Deny port
+      
+      ### Firewall Management (CentOS)
+      - `firewall-cmd --list-all`: Show firewall rules
+      - `firewall-cmd --add-port=port/tcp`: Add port
+      - `firewall-cmd --remove-port=port/tcp`: Remove port
+      - `firewall-cmd --reload`: Reload firewall
+      
+      ## Troubleshooting
+      
+      ### High CPU Usage
+      1. Check processes: `top` or `htop`
+      2. Kill process: `kill PID`
+      3. Force kill: `kill -9 PID`
+      
+      ### High Memory Usage
+      1. Check memory: `free -h`
+      2. Clear cache: `sync && echo 3 > /proc/sys/vm/drop_caches`
+      3. Restart memory-intensive services
+      
+      ### Disk Space Full
+      1. Check disk usage: `df -h`
+      2. Find large files: `find / -type f -size +100M`
+      3. Clean logs: `journalctl --vacuum-time=7d`
+      4. Clean apt cache: `apt clean`
+      
+      ### Service Not Starting
+      1. Check status: `systemctl status service`
+      2. Check logs: `journalctl -u service`
+      3. Check configuration: `systemctl cat service`
+      4. Restart service: `systemctl restart service`
+      
+      ## Security Best Practices
+      
+      1. Always use SSH keys instead of passwords
+      2. Disable root login SSH
+      3. Keep system updated
+      4. Use firewall
+      5. Use fail2ban
+      6. Regular backups
+      7. Monitor logs
+    dest: /opt/ai-assistant/knowledge/server-guide.md
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_assistant | default(false)
+
+- name: Tạo alias cho assistant
+  lineinfile:
+    path: /home/{{ app_user | default('admin') }}/.bashrc
+    line: "alias ai-assistant='python3 /opt/ai-assistant/assistant.py'"
+  when: install_ai_assistant | default(false)

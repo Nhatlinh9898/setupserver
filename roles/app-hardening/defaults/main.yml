@@ -1,0 +1,9 @@
+---
+# Default variables cho App Hardening
+
+install_app_hardening: false
+app_hardening_enabled: false
+app_hardening_immutable: true
+app_hardening_integrity_check: true
+app_hardening_snapshots: true
+app_hardening_max_snapshots: 10

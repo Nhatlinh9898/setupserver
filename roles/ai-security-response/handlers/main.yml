@@ -1,0 +1,21 @@
+---
+# Handlers cho AI Security Response
+
+- name: restart ai-security-response
+  systemd:
+    name: ai-security-response
+    state: restarted
+
+- name: reload fail2ban
+  systemd:
+    name: fail2ban
+    state: reloaded
+
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: reload ufw
+  ufw:
+    state: reloaded

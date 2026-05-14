@@ -1,0 +1,15 @@
+[Unit]
+Description={{ app_name | default('Application') }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+WorkingDirectory={{ project_path }}
+ExecStart={{ systemd_command | default('./start.sh') }}
+Restart=always
+RestartSec=5
+Environment={{ systemd_env_vars | default('NODE_ENV=production') }}
+
+[Install]
+WantedBy=multi-user.target

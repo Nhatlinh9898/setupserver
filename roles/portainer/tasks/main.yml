@@ -1,0 +1,92 @@
+---
+# Portainer Role - Cài đặt Portainer Docker Management Web Interface
+
+- name: Kiểm tra Docker đã được cài đặt
+  service_facts:
+
+- name: Đảm bảo Docker đang chạy
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+  when: ansible_facts.services['docker.service'] is defined
+
+- name: Tạo volume cho Portainer data
+  docker_volume:
+    name: portainer_data
+    state: present
+
+- name: Pull Portainer image
+  docker_image:
+    name: portainer/portainer-ce:{{ portainer_version | default('latest') }}
+    source: pull
+    state: present
+
+- name: Tạo directory cho Portainer
+  file:
+    path: /opt/portainer
+    state: directory
+    mode: '0755'
+
+- name: Cấu hình docker-compose cho Portainer
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/portainer/docker-compose.yml
+    mode: '0644'
+
+- name: Chạy Portainer với Docker Compose
+  community.docker.docker_compose:
+    project_src: /opt/portainer
+    state: present
+  register: portainer_result
+
+- name: Mở port Portainer trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "9443"
+    proto: tcp
+  when: ansible_os_family == "Debian"
+
+- name: Mở port Portainer trên firewall (CentOS)
+  firewalld:
+    port: 9443/tcp
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+- name: Mở port Portainer HTTP trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "9000"
+    proto: tcp
+  when: ansible_os_family == "Debian" and portainer_http_enabled | default(false)
+
+- name: Mở port Portainer HTTP trên firewall (CentOS)
+  firewalld:
+    port: 9000/tcp
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and portainer_http_enabled | default(false)
+  notify: reload firewalld
+
+- name: Đợi Portainer start
+  wait_for:
+    port: 9443
+    delay: 10
+    timeout: 120
+
+- name: Hiển thị thông tin truy cập Portainer
+  debug:
+    msg:
+      - "Portainer đã được cài đặt thành công!"
+      - "Truy cập Portainer tại: https://{{ ansible_default_ipv4.address }}:9443"
+      - "Username: admin"
+      - "Password: Đặt password khi truy cập lần đầu"
+      - "Hoặc HTTP (nếu enabled): http://{{ ansible_default_ipv4.address }}:9000"
+
+handlers:
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

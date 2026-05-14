@@ -1,0 +1,252 @@
+---
+# AI Healing Role - Auto-healing với AI
+
+- name: Cài đặt Python dependencies cho AI Healing
+  pip:
+    name:
+      - langchain
+      - langchain-community
+      - langchain-ollama
+      - psutil
+      - python-dotenv
+    state: present
+    executable: pip3
+  when: install_ai_healing | default(false)
+
+- name: Tạo directory cho AI Healing
+  file:
+    path: /opt/ai-healing
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy AI Healing script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI Healing - Auto-healing với AI
+      """
+      import os
+      import subprocess
+      import json
+      import time
+      from datetime import datetime
+      from langchain_ollama import OllamaLLM
+      from langchain.schema import HumanMessage, SystemMessage
+      import psutil
+
+      # Configuration
+      OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
+      OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+      CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "60"))  # 1 minute
+
+      class AIHealer:
+          def __init__(self):
+              self.llm = OllamaLLM(
+                  model=OLLAMA_MODEL,
+                  base_url=f"http://{OLLAMA_HOST}"
+              )
+              self.healing_actions = {
+                  'restart_nginx': self.restart_nginx,
+                  'restart_mysql': self.restart_mysql,
+                  'restart_docker': self.restart_docker,
+                  'clear_cache': self.clear_cache,
+                  'restart_service': self.restart_service
+              }
+
+          def get_system_status(self):
+              """Lấy trạng thái hệ thống"""
+              return {
+                  "cpu_percent": psutil.cpu_percent(interval=1),
+                  "memory_percent": psutil.virtual_memory().percent,
+                  "disk_percent": psutil.disk_usage('/').percent
+              }
+
+          def check_service_status(self, service):
+              """Kiểm tra status của service"""
+              try:
+                  result = subprocess.run(
+                      f"systemctl is-active {service}",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  return result.stdout.strip() == "active"
+              except:
+                  return False
+
+          def get_failed_services(self):
+              """Lấy danh sách services bị fail"""
+              try:
+                  result = subprocess.run(
+                      "systemctl list-units --type=service --state=failed",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  return result.stdout
+              except:
+                  return ""
+
+          def restart_nginx(self):
+              """Restart Nginx"""
+              result = subprocess.run("systemctl restart nginx", shell=True, capture_output=True, text=True)
+              return {"action": "restart_nginx", "success": result.returncode == 0}
+
+          def restart_mysql(self):
+              """Restart MySQL"""
+              result = subprocess.run("systemctl restart mysql", shell=True, capture_output=True, text=True)
+              return {"action": "restart_mysql", "success": result.returncode == 0}
+
+          def restart_docker(self):
+              """Restart Docker"""
+              result = subprocess.run("systemctl restart docker", shell=True, capture_output=True, text=True)
+              return {"action": "restart_docker", "success": result.returncode == 0}
+
+          def clear_cache(self):
+              """Clear system cache"""
+              result = subprocess.run("sync && echo 3 > /proc/sys/vm/drop_caches", shell=True, capture_output=True, text=True)
+              return {"action": "clear_cache", "success": result.returncode == 0}
+
+          def restart_service(self, service):
+              """Restart một service cụ thể"""
+              result = subprocess.run(f"systemctl restart {service}", shell=True, capture_output=True, text=True)
+              return {"action": f"restart_{service}", "success": result.returncode == 0}
+
+          def analyze_with_ai(self, status, failed_services):
+              """Phân tích với AI và đề xuất hành động"""
+              system_prompt = """Bạn là một AI chuyên gia auto-healing cho Linux server.
+              Nhiệm vụ của bạn:
+              - Phân lý trạng thái hệ thống
+              - Xác định vấn đề từ failed services
+              - Đề xuất hành động healing (restart service, clear cache, v.v.)
+              - Chỉ đề xuất các hành động an toàn
+              
+              Hãy trả về JSON format với action cần thực hiện.
+              Ví dụ: {"action": "restart_nginx", "reason": "Nginx not responding"}"""
+              
+              context = f"""
+              System Status:
+              CPU: {status['cpu_percent']}%
+              Memory: {status['memory_percent']}%
+              Disk: {status['disk_percent']}%
+              
+              Failed Services:
+              {failed_services[:1000]}
+              """
+              
+              messages = [
+                  SystemMessage(content=system_prompt),
+                  HumanMessage(content="Phân tích và đề xuất hành động healing nếu cần.")
+              ]
+              
+              response = self.llm.invoke(messages)
+              return response
+
+          def execute_healing(self, action):
+              """Thực hiện hành động healing"""
+              if action in self.healing_actions:
+                  return self.healing_actions[action]()
+              elif action.startswith("restart_"):
+                  service = action.replace("restart_", "")
+                  return self.restart_service(service)
+              else:
+                  return {"action": action, "success": False, "reason": "Unknown action"}
+
+          def log_healing(self, result):
+              """Log healing action"""
+              log_dir = "/opt/ai-healing/logs"
+              os.makedirs(log_dir, exist_ok=True)
+              
+              log_file = f"{log_dir}/healing_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+              with open(log_file, 'w') as f:
+                  f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                  f.write(f"Result: {json.dumps(result, indent=2)}\n")
+              
+              return log_file
+
+          def run(self):
+              """Chạy healing loop"""
+              print("🤖 AI Healing started...")
+              
+              while True:
+                  try:
+                      # Lấy status
+                      status = self.get_system_status()
+                      
+                      # Kiểm tra failed services
+                      failed_services = self.get_failed_services()
+                      
+                      # Phân tích với AI
+                      ai_response = self.analyze_with_ai(status, failed_services)
+                      
+                      print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] AI Analysis: {ai_response[:200]}...")
+                      
+                      # Thực hiện healing (nếu AI đề xuất)
+                      # Đây là simplified version, thực tế cần parse AI response cẩn thận hơn
+                      if "restart" in ai_response.lower():
+                          # Auto-healing chỉ khi enable
+                          if os.getenv("AUTO_HEAL_ENABLED", "false") == "true":
+                              if "nginx" in ai_response.lower():
+                                  result = self.restart_nginx()
+                                  log_file = self.log_healing(result)
+                                  print(f"🔧 Healing action executed: {result}")
+                              elif "mysql" in ai_response.lower():
+                                  result = self.restart_mysql()
+                                  log_file = self.log_healing(result)
+                                  print(f"🔧 Healing action executed: {result}")
+                      
+                      # Sleep
+                      time.sleep(CHECK_INTERVAL)
+                      
+                  except KeyboardInterrupt:
+                      print("\n👋 AI Healing stopped.")
+                      break
+                  except Exception as e:
+                      print(f"❌ Error: {e}")
+                      time.sleep(60)
+
+      def main():
+          healer = AIHealer()
+          healer.run()
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-healing/healer.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_healing | default(false)
+
+- name: Tạo logs directory
+  file:
+    path: /opt/ai-healing/logs
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_healing | default(false)
+
+- name: Tạo systemd service cho AI Healing
+  template:
+    src: ai-healing.service.j2
+    dest: /etc/systemd/system/ai-healing.service
+    mode: '0644'
+  when: install_ai_healing | default(false)
+  notify: restart ai-healing
+
+- name: Enable AI Healing service
+  systemd:
+    name: ai-healing
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ai_healing | default(false) and ai_healing_enabled | default(false)
+
+handlers:
+  - name: restart ai-healing
+    systemd:
+      name: ai-healing
+      state: restarted

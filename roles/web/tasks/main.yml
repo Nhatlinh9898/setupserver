@@ -1,0 +1,127 @@
+---
+# Web Server Role - Cài đặt Nginx hoặc Apache
+
+- name: Cài đặt Nginx (Ubuntu/Debian)
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+  notify: restart nginx
+
+- name: Cài đặt Nginx (CentOS/RHEL)
+  yum:
+    name: nginx
+    state: present
+  when: ansible_os_family == "RedHat"
+  notify: restart nginx
+
+- name: Cài đặt Apache (Ubuntu/Debian) - Tùy chọn
+  apt:
+    name: apache2
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian" and install_apache | default(false)
+  notify: restart apache
+
+- name: Cài đặt Apache (CentOS/RHEL) - Tùy chọn
+  yum:
+    name: httpd
+    state: present
+  when: ansible_os_family == "RedHat" and install_apache | default(false)
+  notify: restart apache
+
+- name: Tạo directory cho website
+  file:
+    path: /var/www/html
+    state: directory
+    mode: '0755'
+    owner: www-data
+    group: www-data
+  when: ansible_os_family == "Debian"
+
+- name: Tạo directory cho website
+  file:
+    path: /var/www/html
+    state: directory
+    mode: '0755'
+    owner: apache
+    group: apache
+  when: ansible_os_family == "RedHat"
+
+- name: Copy file index.html mẫu
+  copy:
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Welcome to Server</title>
+          <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #333; }
+              .info { background: #f4f4f4; padding: 20px; border-radius: 5px; margin: 20px auto; max-width: 600px; }
+          </style>
+      </head>
+      <body>
+          <h1>Server Installation Complete!</h1>
+          <div class="info">
+              <p><strong>Web Server:</strong> Nginx</p>
+              <p><strong>OS:</strong> {{ ansible_distribution }} {{ ansible_distribution_version }}</p>
+              <p><strong>Hostname:</strong> {{ ansible_hostname }}</p>
+              <p><strong>IP Address:</strong> {{ ansible_default_ipv4.address }}</p>
+          </div>
+      </body>
+      </html>
+    dest: /var/www/html/index.html
+    mode: '0644'
+
+- name: Cấu hình Nginx cơ bản
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/default
+    backup: yes
+  when: ansible_os_family == "Debian"
+  notify: restart nginx
+
+- name: Enable Nginx service
+  service:
+    name: nginx
+    enabled: yes
+    state: started
+
+- name: Mở port HTTP và HTTPS trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+  when: ansible_os_family == "Debian"
+
+- name: Mở port HTTP và HTTPS trên firewall (CentOS)
+  firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    state: enabled
+  loop:
+    - http
+    - https
+  when: ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+handlers:
+  - name: restart nginx
+    service:
+      name: nginx
+      state: restarted
+
+  - name: restart apache
+    service:
+      name: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+      state: restarted
+
+  - name: reload firewalld
+    service:
+      name: firewalld
+      state: reloaded

@@ -1,0 +1,188 @@
+---
+# AI Security Policy - Giới hạn quyền và hành động của AI
+# File này định nghĩa các chính sách bảo mật để AI không thể tự ý sửa code
+
+# Chính sách chung
+ai_security:
+  # Chế độ hoạt động: read_only, monitored, unrestricted
+  operation_mode: "read_only"  # Mặc định: read_only (chỉ đọc, không ghi)
+  
+  # Yêu cầu phê duyệt cho các hành động nguy hiểm
+  require_approval_for:
+    - "restart_services"
+    - "modify_files"
+    - "execute_commands"
+    - "change_config"
+  
+  # Danh sách các đường dẫn bị cấm AI truy cập (không áp dụng cho AI Security Response)
+  forbidden_paths:
+    - "/opt/apps/*/src"  # Source code của app
+    - "/opt/apps/*/app"  # App code
+    - "/var/www/html"    # Web root
+    - "/home/*/git"      # Git repositories
+    - "/etc/nginx"       # Nginx config (nếu cần bảo vệ)
+    - "/etc/apache2"     # Apache config (nếu cần bảo vệ)
+  
+  # Exception cho AI Security Response
+  security_response_exceptions:
+    paths:
+      - "/var/log"  # Cần đọc logs
+      - "/etc/fail2ban"  # Cấu hình fail2ban
+      - "/etc/ufw"  # Cấu hình firewall
+    commands:
+      - "iptables"  # Quản lý firewall
+      - "ufw"  # Quản lý firewall
+      - "fail2ban-client"  # Quản lý fail2ban
+  
+  # Danh sách các lệnh bị cấm
+  forbidden_commands:
+    - "rm"
+    - "mv"
+    - "cp"
+    - "chmod"
+    - "chown"
+    - "git"
+    - "npm install"
+    - "pip install"
+    - "docker build"
+    - "kubectl"
+  
+  # Chỉ cho phép AI thực hiện các lệnh an toàn
+  allowed_commands:
+    - "systemctl status"
+    - "systemctl is-active"
+    - "journalctl"
+    - "df -h"
+    - "free -h"
+    - "top"
+    - "ps aux"
+    - "netstat"
+    - "ss"
+    - "tail"
+    - "cat"
+    - "ls"
+    - "grep"
+  
+  # Audit logging - Ghi log tất cả hành động của AI
+  audit_logging:
+    enabled: true
+    log_path: "/var/log/ai-audit.log"
+    log_level: "info"  # debug, info, warn, error
+    log_actions:
+      - "all"  # Log tất cả hành động
+  
+  # Rate limiting - Giới hạn số lượng hành động
+  rate_limiting:
+    enabled: true
+    max_actions_per_minute: 10
+    max_actions_per_hour: 100
+  
+  # Timeout cho các hành động
+  action_timeout:
+    read_operations: 30  # giây
+    write_operations: 0  # 0 = không cho phép
+    command_execution: 10  # giây
+  
+  # Notification - Gửi thông báo khi AI thực hiện hành động
+  notifications:
+    enabled: false
+    webhook_url: ""  # URL để gửi notification (Slack, Discord, v.v.)
+    notify_on:
+      - "forbidden_action_attempt"
+      - "approval_required"
+      - "error"
+
+# Cấu hình riêng cho từng AI component
+ai_healing_security:
+  # Chỉ cho phép restart services, không sửa code
+  allowed_actions:
+    - "restart_nginx"
+    - "restart_mysql"
+    - "restart_docker"
+    - "clear_cache"
+  require_approval: true  # Luôn yêu cầu phê duyệt
+  auto_mode: false  # Tắt hoàn toàn auto-mode
+
+ai_monitoring_security:
+  # Chỉ đọc, không hành động
+  allowed_actions:
+    - "read_logs"
+    - "read_metrics"
+    - "analyze"
+  require_approval: false  # Không cần phê duyệt cho read-only
+  auto_mode: true  # Cho phép auto-monitoring
+
+ai_assistant_security:
+  # Chỉ trả lời câu hỏi, không hành động
+  allowed_actions:
+    - "answer_questions"
+    - "provide_suggestions"
+  require_approval: false
+  auto_mode: true
+
+# AI Security Response - NHIỆM VỤ CHÍNH: SECURITY
+# AI này có quyền cao hơn để phản hồi tấn công mạng
+ai_security_response_security:
+  # Cho phép các hành động security cần thiết
+  allowed_actions:
+    - "block_ip"
+    - "block_port"
+    - "restart_firewall"
+    - "enable_fail2ban"
+    - "ban_ip_fail2ban"
+    - "kill_suspicious_process"
+    - "isolate_server"
+    - "notify_admin"
+    - "create_incident_report"
+    - "read_logs"
+    - "read_metrics"
+    - "analyze"
+  
+  # Commands được phép cho AI Security Response
+  allowed_commands:
+    - "iptables"
+    - "ufw"
+    - "fail2ban-client"
+    - "systemctl status"
+    - "systemctl restart"
+    - "kill"
+    - "journalctl"
+    - "netstat"
+    - "ss"
+    - "ps aux"
+    - "df -h"
+    - "free -h"
+    - "tail"
+    - "cat"
+    - "ls"
+    - "grep"
+  
+  # Paths được phép truy cập
+  allowed_paths:
+    - "/var/log"
+    - "/opt/ai-security-response"
+    - "/etc/fail2ban"
+    - "/etc/ufw"
+    - "/proc"
+    - "/sys"
+  
+  # Không cần phê duyệt cho các hành động khẩn cấp
+  require_approval: false
+  auto_mode: true
+  
+  # Threat levels
+  threat_levels:
+    low:
+      actions: ["notify_admin", "create_incident_report"]
+    medium:
+      actions: ["notify_admin", "create_incident_report", "enable_fail2ban"]
+    high:
+      actions: ["notify_admin", "create_incident_report", "enable_fail2ban", "block_ip", "kill_suspicious_process"]
+    critical:
+      actions: ["notify_admin", "create_incident_report", "enable_fail2ban", "block_ip", "block_port", "kill_suspicious_process", "isolate_server"]
+  
+  # Rate limiting cho AI Security Response
+  rate_limiting:
+    enabled: true
+    max_actions_per_minute: 20  # Cho phép nhiều hành động hơn khi có tấn công
+    max_actions_per_hour: 200

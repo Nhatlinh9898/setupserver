@@ -1,0 +1,215 @@
+---
+# Dependencies Role - Cài đặt dependencies cho dự án (npm, pip, composer, v.v.)
+
+# Node.js / npm dependencies
+- name: Kiểm tra package.json tồn tại
+  stat:
+    path: "{{ project_path }}/package.json"
+  register: package_json
+
+- name: Cài đặt npm dependencies
+  npm:
+    path: "{{ project_path }}"
+    state: present
+  when: package_json.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_ENV: "{{ node_env | default('production') }}"
+
+- name: Cài đặt npm dependencies với ci (cho production)
+  command: npm ci
+  args:
+    chdir: "{{ project_path }}"
+  when: package_json.stat.exists and node_env | default('production') == 'production'
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_ENV: production
+
+- name: Chạy npm build (nếu có script build)
+  command: npm run build
+  args:
+    chdir: "{{ project_path }}"
+  when: package_json.stat.exists and npm_build | default(false)
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_ENV: "{{ node_env | default('production') }}"
+
+# Python / pip dependencies
+- name: Kiểm tra requirements.txt tồn tại
+  stat:
+    path: "{{ project_path }}/requirements.txt"
+  register: requirements_txt
+
+- name: Kiểm tra pyproject.toml tồn tại
+  stat:
+    path: "{{ project_path }}/pyproject.toml"
+  register: pyproject_toml
+
+- name: Tạo Python virtual environment
+  command: python3 -m venv {{ project_path }}/venv
+  args:
+    creates: "{{ project_path }}/venv"
+  when: requirements_txt.stat.exists or pyproject_toml.stat.exists
+  become_user: "{{ app_user }}"
+
+- name: Cài đặt pip dependencies từ requirements.txt
+  pip:
+    requirements: "{{ project_path }}/requirements.txt"
+    virtualenv: "{{ project_path }}/venv"
+    state: present
+  when: requirements_txt.stat.exists
+  become_user: "{{ app_user }}"
+
+- name: Cài đặt pip dependencies từ pyproject.toml
+  pip:
+    chdir: "{{ project_path }}"
+    virtualenv: "{{ project_path }}/venv"
+    state: present
+  when: pyproject_toml.stat.exists
+  become_user: "{{ app_user }}"
+
+# PHP / Composer dependencies
+- name: Kiểm tra composer.json tồn tại
+  stat:
+    path: "{{ project_path }}/composer.json"
+  register: composer_json
+
+- name: Cài đặt Composer
+  shell: |
+    curl -sS https://getcomposer.org/installer | php
+    mv composer.phar /usr/local/bin/composer
+  args:
+    creates: /usr/local/bin/composer
+  when: composer_json.stat.exists
+
+- name: Cài đặt Composer dependencies
+  composer:
+    command: install
+    working_dir: "{{ project_path }}"
+    prefer_dist: yes
+    no_dev: "{{ composer_no_dev | default(true) }}"
+  when: composer_json.stat.exists
+  become_user: "{{ app_user }}"
+
+# Ruby / Bundler dependencies
+- name: Kiểm tra Gemfile tồn tại
+  stat:
+    path: "{{ project_path }}/Gemfile"
+  register: gemfile
+
+- name: Cài đặt Bundler
+  gem:
+    name: bundler
+    state: present
+  when: gemfile.stat.exists
+
+- name: Cài đặt Ruby gems
+  bundler:
+    state: present
+    gemfile: "{{ project_path }}/Gemfile"
+    deployment_mode: "{{ bundler_deployment | default(true) }}"
+  when: gemfile.stat.exists
+  become_user: "{{ app_user }}"
+
+# Go / Go modules
+- name: Kiểm tra go.mod tồn tại
+  stat:
+    path: "{{ project_path }}/go.mod"
+  register: go_mod
+
+- name: Cài đặt Go dependencies
+  command: go mod download
+  args:
+    chdir: "{{ project_path }}"
+  when: go_mod.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    GOPATH: /home/{{ app_user }}/go
+
+# Java / Maven dependencies
+- name: Kiểm tra pom.xml tồn tại
+  stat:
+    path: "{{ project_path }}/pom.xml"
+  register: pom_xml
+
+- name: Cài đặt Maven dependencies
+  command: mvn clean install
+  args:
+    chdir: "{{ project_path }}"
+  when: pom_xml.stat.exists
+  become_user: "{{ app_user }}"
+
+# Java / Gradle dependencies
+- name: Kiểm tra build.gradle tồn tại
+  stat:
+    path: "{{ project_path }}/build.gradle"
+  register: build_gradle
+
+- name: Cài đặt Gradle dependencies
+  command: ./gradlew build
+  args:
+    chdir: "{{ project_path }}"
+  when: build_gradle.stat.exists
+  become_user: "{{ app_user }}"
+
+# Rust / Cargo dependencies
+- name: Kiểm tra Cargo.toml tồn tại
+  stat:
+    path: "{{ project_path }}/Cargo.toml"
+  register: cargo_toml
+
+- name: Cài đặt Rust dependencies
+  command: cargo build --release
+  args:
+    chdir: "{{ project_path }}"
+  when: cargo_toml.stat.exists
+  become_user: "{{ app_user }}"
+
+# Docker dependencies
+- name: Kiểm tra docker-compose.yml tồn tại
+  stat:
+    path: "{{ project_path }}/docker-compose.yml"
+  register: docker_compose_yml
+
+- name: Kiểm tra Dockerfile tồn tại
+  stat:
+    path: "{{ project_path }}/Dockerfile"
+  register: dockerfile
+
+- name: Build Docker image
+  command: docker build -t {{ docker_image_name | default('app') }}:{{ docker_image_tag | default('latest') }} .
+  args:
+    chdir: "{{ project_path }}"
+  when: dockerfile.stat.exists
+
+- name: Build và start Docker Compose
+  command: docker-compose up -d --build
+  args:
+    chdir: "{{ project_path }}"
+  when: docker_compose_yml.stat.exists
+
+# Custom install script
+- name: Kiểm tra install.sh tồn tại
+  stat:
+    path: "{{ project_path }}/install.sh"
+  register: install_sh
+
+- name: Chạy custom install script
+  command: bash install.sh
+  args:
+    chdir: "{{ project_path }}"
+  when: install_sh.stat.exists
+  become_user: "{{ app_user }}"
+
+# Custom setup script
+- name: Kiểm tra setup.sh tồn tại
+  stat:
+    path: "{{ project_path }}/setup.sh"
+  register: setup_sh
+
+- name: Chạy custom setup script
+  command: bash setup.sh
+  args:
+    chdir: "{{ project_path }}"
+  when: setup_sh.stat.exists
+  become_user: "{{ app_user }}"

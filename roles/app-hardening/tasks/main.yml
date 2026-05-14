@@ -1,0 +1,486 @@
+---
+# App Hardening Role - Bảo vệ code và app (Lớp 2: Rào chắn bảo vệ)
+# Mục đích: Nếu AI có sai sót, code/app vẫn được bảo vệ
+
+- name: Cài đặt công cụ hardening
+  apt:
+    name:
+      - apparmor
+      - auditd
+      - tripwire
+      - aide
+      - chkrootkit
+      - rkhunter
+      - unattended-upgrades
+      - debsums
+    state: present
+    update_cache: yes
+  when: install_app_hardening | default(false)
+
+- name: Tạo directory cho app hardening
+  file:
+    path: /opt/app-hardening
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo backup directory
+  file:
+    path: /opt/app-backups
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo integrity directory
+  file:
+    path: /opt/app-integrity
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo snapshot directory
+  file:
+    path: /opt/app-snapshots
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy App Hardening script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      App Hardening - Bảo vệ code và app (Lớp 2: Rào chắn bảo vệ)
+      """
+      import os
+      import subprocess
+      import json
+      import hashlib
+      import shutil
+      from datetime import datetime
+      from pathlib import Path
+
+      # Configuration
+      PROJECT_PATH = os.getenv("PROJECT_PATH", "/opt/apps/my-app")
+      BACKUP_PATH = "/opt/app-backups"
+      INTEGRITY_PATH = "/opt/app-integrity"
+      SNAPSHOT_PATH = "/opt/app-snapshots"
+      MAX_SNAPSHOTS = 10
+
+      class AppHardener:
+          def __init__(self):
+              self.project_path = PROJECT_PATH
+              self.backup_path = BACKUP_PATH
+              self.integrity_path = INTEGRITY_PATH
+              self.snapshot_path = SNAPSHOT_PATH
+              
+          def calculate_file_hash(self, file_path):
+              """Tính hash của file"""
+              sha256_hash = hashlib.sha256()
+              with open(file_path, "rb") as f:
+                  for byte_block in iter(lambda: f.read(4096), b""):
+                      sha256_hash.update(byte_block)
+              return sha256_hash.hexdigest()
+          
+          def create_integrity_baseline(self):
+              """Tạo baseline integrity cho code"""
+              baseline = {}
+              
+              if os.path.exists(self.project_path):
+                  for root, dirs, files in os.walk(self.project_path):
+                      # Bỏ qua node_modules, .git, v.v.
+                      dirs[:] = [d for d in dirs if d not in ['node_modules', '.git', '__pycache__', 'venv']]
+                      
+                      for file in files:
+                          file_path = os.path.join(root, file)
+                          try:
+                              file_hash = self.calculate_file_hash(file_path)
+                              relative_path = os.path.relpath(file_path, self.project_path)
+                              baseline[relative_path] = {
+                                  "hash": file_hash,
+                                  "size": os.path.getsize(file_path),
+                                  "modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                              }
+                          except:
+                              pass
+              
+              # Lưu baseline
+              baseline_file = f"{self.integrity_path}/baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+              os.makedirs(self.integrity_path, exist_ok=True)
+              with open(baseline_file, 'w') as f:
+                  json.dump(baseline, f, indent=2)
+              
+              print(f"✅ Integrity baseline created: {baseline_file}")
+              return baseline_file
+          
+          def verify_integrity(self, baseline_file=None):
+              """Kiểm tra integrity của code"""
+              if not baseline_file:
+                  # Lấy baseline mới nhất
+                  baseline_files = sorted([f for f in os.listdir(self.integrity_path) if f.startswith('baseline_')])
+                  if baseline_files:
+                      baseline_file = os.path.join(self.integrity_path, baseline_files[-1])
+                  else:
+                      print("⚠️ No baseline found")
+                  return None
+              
+              # Load baseline
+              with open(baseline_file, 'r') as f:
+                  baseline = json.load(f)
+              
+              violations = []
+              
+              for relative_path, file_info in baseline.items():
+                  file_path = os.path.join(self.project_path, relative_path)
+                  
+                  if not os.path.exists(file_path):
+                      violations.append({
+                          "file": relative_path,
+                          "type": "deleted",
+                          "expected_hash": file_info["hash"]
+                      })
+                  else:
+                      current_hash = self.calculate_file_hash(file_path)
+                      if current_hash != file_info["hash"]:
+                          violations.append({
+                              "file": relative_path,
+                              "type": "modified",
+                              "expected_hash": file_info["hash"],
+                              "current_hash": current_hash
+                          })
+              
+              # Kiểm tra new files
+              current_files = set()
+              if os.path.exists(self.project_path):
+                  for root, dirs, files in os.walk(self.project_path):
+                      dirs[:] = [d for d in dirs if d not in ['node_modules', '.git', '__pycache__', 'venv']]
+                      for file in files:
+                          file_path = os.path.join(root, file)
+                          relative_path = os.path.relpath(file_path, self.project_path)
+                          current_files.add(relative_path)
+              
+              baseline_files_set = set(baseline.keys())
+              new_files = current_files - baseline_files_set
+              
+              for new_file in new_files:
+                  violations.append({
+                      "file": new_file,
+                      "type": "new",
+                      "current_hash": self.calculate_file_hash(os.path.join(self.project_path, new_file))
+                  })
+              
+              if violations:
+                  print(f"⚠️ Found {len(violations)} integrity violations:")
+                  for v in violations:
+                      print(f"  - {v['file']}: {v['type']}")
+                  return violations
+              else:
+                  print("✅ No integrity violations detected")
+                  return None
+          
+          def create_snapshot(self, name=None):
+              """Tạo snapshot của code"""
+              if not name:
+                  name = f"snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+              
+              snapshot_dir = os.path.join(self.snapshot_path, name)
+              
+              if os.path.exists(self.project_path):
+                  shutil.copytree(self.project_path, snapshot_dir, ignore=shutil.ignore_patterns('node_modules', '.git', '__pycache__', 'venv'))
+                  print(f"✅ Snapshot created: {snapshot_dir}")
+                  
+                  # Cleanup old snapshots
+                  self.cleanup_old_snapshots()
+                  
+                  return snapshot_dir
+              else:
+                  print(f"⚠️ Project path not found: {self.project_path}")
+                  return None
+          
+          def restore_snapshot(self, snapshot_name):
+              """Khôi phục từ snapshot"""
+              snapshot_dir = os.path.join(self.snapshot_path, snapshot_name)
+              
+              if os.path.exists(snapshot_dir):
+                  # Backup current code
+                  backup_dir = os.path.join(self.backup_path, f"backup_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+                  if os.path.exists(self.project_path):
+                      shutil.copytree(self.project_path, backup_dir)
+                      print(f"✅ Backup created: {backup_dir}")
+                  
+                  # Restore from snapshot
+                  shutil.rmtree(self.project_path)
+                  shutil.copytree(snapshot_dir, self.project_path)
+                  print(f"✅ Restored from snapshot: {snapshot_name}")
+                  return True
+              else:
+                  print(f"⚠️ Snapshot not found: {snapshot_name}")
+                  return False
+          
+          def cleanup_old_snapshots(self):
+              """Xóa snapshots cũ, giữ lại MAX_SNAPSHOTS"""
+              snapshots = sorted([d for d in os.listdir(self.snapshot_path) if os.path.isdir(os.path.join(self.snapshot_path, d))])
+              
+              while len(snapshots) > MAX_SNAPSHOTS:
+                  old_snapshot = snapshots.pop(0)
+                  old_snapshot_path = os.path.join(self.snapshot_path, old_snapshot)
+                  shutil.rmtree(old_snapshot_path)
+                  print(f"🗑️ Deleted old snapshot: {old_snapshot}")
+          
+          def list_snapshots(self):
+              """Liệt kê các snapshots"""
+              if os.path.exists(self.snapshot_path):
+                  snapshots = sorted([d for d in os.listdir(self.snapshot_path) if os.path.isdir(os.path.join(self.snapshot_path, d))])
+                  print(f"📦 Available snapshots ({len(snapshots)}):")
+                  for snap in snapshots:
+                      snap_path = os.path.join(self.snapshot_path, snap)
+                      size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk(snap_path) for filename in filenames)
+                      print(f"  - {snap} ({size / 1024 / 1024:.2f} MB)")
+                  return snapshots
+              else:
+                  print("⚠️ No snapshots found")
+                  return []
+          
+          def make_code_readonly(self):
+              """Làm cho code trở thành read-only (immutable)"""
+              if os.path.exists(self.project_path):
+                  subprocess.run(f"chmod -R a-w {self.project_path}", shell=True, check=True)
+                  print(f"✅ Code made read-only: {self.project_path}")
+                  return True
+              else:
+                  print(f"⚠️ Project path not found: {self.project_path}")
+                  return False
+          
+          def make_code_writable(self):
+              """Làm cho code trở thành writable"""
+              if os.path.exists(self.project_path):
+                  subprocess.run(f"chmod -R u+w {self.project_path}", shell=True, check=True)
+                  print(f"✅ Code made writable: {self.project_path}")
+                  return True
+              else:
+                  print(f"⚠️ Project path not found: {self.project_path}")
+                  return False
+          
+          def create_apparmor_profile(self):
+              """Tạo AppArmor profile cho app"""
+              profile_content = f"""
+#include <tunables/global>
+
+profile {self.project_path} {{
+  # Allow basic operations
+  capability net_bind_service,
+  capability net_admin,
+  
+  # Allow network
+  network inet stream,
+  network inet6 stream,
+  
+  # Allow access to project directory
+  {self.project_path}/** r,
+  {self.project_path}/** w,
+  
+  # Allow access to temp
+  /tmp/** rw,
+  
+  # Deny access to sensitive areas
+  deny /etc/shadow r,
+  deny /etc/passwd r,
+  deny /root/** rw,
+  deny /home/**/.ssh/** rw,
+  
+  # Deny system modification
+  deny /bin/** w,
+  deny /usr/bin/** w,
+  deny /sbin/** w,
+  deny /usr/sbin/** w,
+}}
+"""
+              profile_file = f"/etc/apparmor.d/{os.path.basename(self.project_path)}"
+              with open(profile_file, 'w') as f:
+                  f.write(profile_content)
+              
+              # Load profile
+              subprocess.run(f"apparmor_parser -r {profile_file}", shell=True)
+              print(f"✅ AppArmor profile created: {profile_file}")
+              return profile_file
+          
+          def enable_audit_logging(self):
+              """Bật audit logging cho app directory"""
+              audit_rule = f"-w {self.project_path}/ -p wa -k app_changes"
+              
+              # Check if rule already exists
+              result = subprocess.run("auditctl -l", shell=True, capture_output=True, text=True)
+              if self.project_path in result.stdout:
+                  print("⚠️ Audit rule already exists")
+                  return True
+              
+              # Add rule
+              subprocess.run(f"auditctl -a exit,always -F dir={self.project_path} -F perm=wa -k app_changes", shell=True)
+              print(f"✅ Audit logging enabled for: {self.project_path}")
+              return True
+          
+          def setup_immutable_flag(self):
+              """Thiết lập immutable flag cho critical directories"""
+              if os.path.exists(self.project_path):
+                  # Sử dụng chattr để làm immutable (cần ext4/xfs)
+                  try:
+                      subprocess.run(f"chattr +i -R {self.project_path}", shell=True, check=True)
+                      print(f"✅ Immutable flag set for: {self.project_path}")
+                      return True
+                  except:
+                      print("⚠️ Cannot set immutable flag (may not be supported or need root)")
+                      return False
+              else:
+                  print(f"⚠️ Project path not found: {self.project_path}")
+                  return False
+          
+          def remove_immutable_flag(self):
+              """Gỡ immutable flag"""
+              if os.path.exists(self.project_path):
+                  try:
+                      subprocess.run(f"chattr -i -R {self.project_path}", shell=True, check=True)
+                      print(f"✅ Immutable flag removed for: {self.project_path}")
+                      return True
+                  except:
+                      print("⚠️ Cannot remove immutable flag")
+                      return False
+              else:
+                  print(f"⚠️ Project path not found: {self.project_path}")
+                  return False
+
+      def main():
+          hardener = AppHardener()
+          
+          print("🔒 App Hardening - Bảo vệ code và app")
+          print("=" * 50)
+          
+          # Tạo integrity baseline
+          print("\n1. Tạo integrity baseline...")
+          hardener.create_integrity_baseline()
+          
+          # Tạo snapshot
+          print("\n2. Tạo snapshot...")
+          hardener.create_snapshot("initial")
+          
+          # Làm code read-only
+          print("\n3. Làm code read-only...")
+          hardener.make_code_readonly()
+          
+          # Bật audit logging
+          print("\n4. Bật audit logging...")
+          hardener.enable_audit_logging()
+          
+          print("\n✅ App hardening completed!")
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/app-hardening/hardener.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_app_hardening | default(false)
+
+- name: Cấu hình AIDE (Advanced Intrusion Detection Environment)
+  copy:
+    content: |
+      # AIDE configuration
+      database=file:/var/lib/aide/aide.db
+      database_out=file:/var/lib/aide/aide.db.new
+      database_new=file:/var/lib/aide/aide.db.new
+      
+      # Check directories
+      /opt/apps p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+      /etc p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+      /bin p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+      /sbin p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+      /usr/bin p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+      /usr/sbin p+i+u+g+s+m+c+md5+sha1+rmd160+tiger
+    dest: /etc/aide/aide.conf
+    mode: '0644'
+  when: install_app_hardening | default(false)
+
+- name: Khởi tạo AIDE database
+  command: aide --init
+  args:
+    creates: /var/lib/aide/aide.db.new
+  when: install_app_hardening | default(false)
+
+- name: Copy AIDE database
+  command: mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  args:
+    removes: /var/lib/aide/aide.db.new
+  when: install_app_hardening | default(false)
+
+- name: Cấu hình Tripwire
+  copy:
+    content: |
+      # Tripwire configuration
+      ROOT={{ project_path | default('/opt/apps/my-app') }}
+      
+      # Policy file
+      POLFILE=/etc/tripwire/tw.pol
+      LOGFILE=/var/log/tripwire/tripwire.log
+      REPORTFILE=/var/log/tripwire/tripwire.report
+      DBFILE=/var/lib/tripwire/{{ project_path | default('my-app') }}.twd
+      KEYFILE=/etc/tripwire/{{ project_path | default('my-app') }}.key
+    dest: /etc/tripwire/twcfg.txt
+    mode: '0644'
+  when: install_app_hardening | default(false)
+
+- name: Bật unattended-upgrades
+  copy:
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+          "${distro_id}:${distro_codename}";
+          "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+      Unattended-Upgrade::MinimalSteps "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    mode: '0644'
+  when: install_app_hardening | default(false)
+
+- name: Bật automatic security updates
+  copy:
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    mode: '0644'
+  when: install_app_hardening | default(false)
+
+- name: Tạo systemd service cho App Hardening Monitor
+  copy:
+    content: |
+      [Unit]
+      Description=App Hardening Monitor - Monitor code integrity
+      After=network.target
+
+      [Service]
+      Type=simple
+      User={{ app_user | default('admin') }}
+      Environment=PROJECT_PATH={{ project_path | default('/opt/apps/my-app') }}
+      ExecStart=/usr/bin/python3 /opt/app-hardening/hardener.py
+      Restart=on-failure
+      RestartSec=60
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/app-hardening.service
+    mode: '0644'
+  when: install_app_hardening | default(false)
+
+- name: Enable App Hardening service
+  systemd:
+    name: app-hardening
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_app_hardening | default(false) and app_hardening_enabled | default(true)

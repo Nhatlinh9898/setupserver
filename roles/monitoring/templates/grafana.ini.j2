@@ -1,0 +1,28 @@
+[server]
+http_addr = 0.0.0.0
+http_port = 3000
+domain = {{ grafana_domain | default('localhost') }}
+root_url = %(protocol)s://%(domain)s:%(http_port)s/
+
+[security]
+admin_user = {{ grafana_admin_user | default('admin') }}
+admin_password = {{ grafana_admin_password | default('admin') }}
+disable_gravatar = true
+
+[users]
+allow_sign_up = false
+auto_assign_org = true
+auto_assign_org_role = Viewer
+
+[auth.anonymous]
+enabled = {{ grafana_anonymous_enabled | default(false) }}
+org_name = {{ grafana_org_name | default('Main Org.') }}
+org_role = {{ grafana_anonymous_role | default('Viewer') }}
+
+[database]
+type = sqlite3
+path = /var/lib/grafana/grafana.db
+
+[log]
+mode = console
+level = {{ grafana_log_level | default('info') }}

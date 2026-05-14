@@ -1,0 +1,19 @@
+module.exports = {
+  apps: [{
+    name: '{{ app_name | default("node-app") }}',
+    script: '{{ node_script | default("app.js") }}',
+    instances: '{{ node_instances | default(1) }}',
+    exec_mode: '{{ node_exec_mode | default("fork") }}',
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '{{ node_max_memory | default("1G") }}',
+    env: {
+      NODE_ENV: '{{ node_env | default("production") }}',
+      PORT: {{ app_port | default(3000) }}
+    },
+    error_file: '{{ project_path }}/logs/error.log',
+    out_file: '{{ project_path }}/logs/out.log',
+    log_file: '{{ project_path }}/logs/combined.log',
+    time: true
+  }]
+};

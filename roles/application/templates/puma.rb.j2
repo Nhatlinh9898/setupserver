@@ -1,0 +1,23 @@
+#!/usr/bin/env puma
+
+directory '{{ project_path }}'
+rackup '{{ project_path }}/config.ru'
+environment '{{ rails_env | default('production') }}'
+
+pidfile '{{ project_path }}/tmp/pids/puma.pid'
+state_path '{{ project_path }}/tmp/pids/puma.state'
+stdout_redirect '{{ project_path }}/logs/puma.stdout.log', '{{ project_path }}/logs/puma.stderr.log', true
+
+threads {{ puma_threads_min | default(0) }}, {{ puma_threads_max | default(16) }}
+workers {{ puma_workers | default(2) }}
+
+bind 'unix://{{ project_path }}/tmp/sockets/puma.sock'
+activate_control_app 'unix://{{ project_path }}/tmp/sockets/pumactl.sock'
+
+on_worker_boot do
+  require 'active_record'
+  ActiveRecord::Base.connection.disconnect! rescue ActiveRecord::ConnectionNotEstablished
+  ActiveRecord::Base.establish_connection(YAML.load_file('{{ project_path }}/config/database.yml')[ENV['RAILS_ENV']])
+end
+
+plugin 'tmp_restart'

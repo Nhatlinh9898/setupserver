@@ -1,0 +1,112 @@
+#cloud-config
+# Ubuntu Server Automated Installation Configuration
+# File này dùng để cài đặt tự động Ubuntu Server
+# Sử dụng: Đặt file này vào USB boot với tên "user-data" trong thư mục "nocloud"
+
+# Cấu hình cơ bản
+hostname: server-01
+manage_etc_hosts: true
+timezone: Asia/Ho_Chi_Minh
+locale: vi_VN.UTF-8
+
+# Cấu hình người dùng
+users:
+  - name: admin
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users,adm
+    lock_passwd: false
+    passwd: "$6$rounds=4096$xyz$your_hashed_password_here"  # Thay bằng password hash thực tế
+    ssh_authorized_keys:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... your_public_key_here"  # Thay bằng SSH key của bạn
+
+# Cấu hình mạng (DHCP)
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: true
+      dhcp6: false
+
+# Cấu hình SSH
+ssh:
+  install-server: true
+  allow-pw: false  # Chỉ cho phép SSH key
+  authorized-keys:
+    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... your_public_key_here"
+
+# Cấu hình package repository
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Cài đặt các package cơ bản
+packages:
+  - vim
+  - curl
+  - wget
+  - git
+  - htop
+  - net-tools
+  - ufw
+  - fail2ban
+  - unzip
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# Cấu hình firewall
+runcmd:
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow ssh
+  - ufw allow http
+  - ufw allow https
+  - ufw --force enable
+
+# Cấu hình swap (tùy chọn)
+swap:
+  filename: /swapfile
+  size: 4G  # Kích thước swap 4GB
+  maxsize: 4G
+
+# Cấu hình disk partition (tùy chọn - sử dụng LVM)
+storage:
+  config:
+    - type: disk
+      id: disk0
+      ptable: gpt
+      wipe: superblock
+      grub_device: true
+    - type: partition
+      id: partition0
+      device: disk0
+      size: 512M
+      flag: boot
+    - type: partition
+      id: partition1
+      device: disk0
+      size: -1
+    - type: filesystem
+      id: filesystem0
+      volume: partition0
+      format: vfat
+      label: EFI
+    - type: filesystem
+      id: filesystem1
+      volume: partition1
+      format: ext4
+      label: root
+    - type: mount
+      id: mount0
+      device: filesystem0
+      path: /boot/efi
+    - type: mount
+      id: mount1
+      device: filesystem1
+      path: /
+
+# Script chạy sau khi cài đặt
+final_message: "Ubuntu Server installation completed successfully!"

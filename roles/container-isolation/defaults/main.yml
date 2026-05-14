@@ -1,0 +1,13 @@
+---
+# Default variables cho Container Isolation
+
+install_container_isolation: false
+container_monitor_enabled: false
+docker_base_image: "python:3.9-slim"
+container_cpu_limit: "1.0"
+container_memory_limit: "512M"
+container_cpu_reservation: "0.5"
+container_memory_reservation: "256M"
+container_subnet: "172.20.0.0/16"
+container_uid: "1000"
+container_gid: "1000"

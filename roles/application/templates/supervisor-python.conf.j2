@@ -1,0 +1,9 @@
+[program:{{ app_name | default('python-app') }}]
+command={{ project_path }}/venv/bin/{{ python_command | default('gunicorn') }} {{ python_app_module | default('app:app') }} --bind 0.0.0.0:{{ app_port | default(8000) }}
+directory={{ project_path }}
+user={{ app_user }}
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile={{ project_path }}/logs/supervisor.log
+environment=PATH="{{ project_path }}/venv/bin"

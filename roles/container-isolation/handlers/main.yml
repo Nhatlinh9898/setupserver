@@ -1,0 +1,17 @@
+---
+# Handlers cho Container Isolation
+
+- name: restart container-monitor
+  systemd:
+    name: container-monitor
+    state: restarted
+
+- name: reload docker
+  systemd:
+    name: docker
+    state: reloaded
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted

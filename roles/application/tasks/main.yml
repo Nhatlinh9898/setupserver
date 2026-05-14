@@ -1,0 +1,297 @@
+---
+# Application Role - Cấu hình và chạy ứng dụng
+
+# Node.js Application
+- name: Kiểm tra Node.js application (package.json)
+  stat:
+    path: "{{ project_path }}/package.json"
+  register: node_app
+
+- name: Cấu hình PM2 cho Node.js app
+  template:
+    src: ecosystem.config.js.j2
+    dest: "{{ project_path }}/ecosystem.config.js"
+    mode: '0644'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: node_app.stat.exists and use_pm2 | default(true)
+
+- name: Start Node.js app với PM2
+  command: pm2 start ecosystem.config.js
+  args:
+    chdir: "{{ project_path }}"
+  when: node_app.stat.exists and use_pm2 | default(true)
+  become_user: "{{ app_user }}"
+  environment:
+    NODE_ENV: "{{ node_env | default('production') }}"
+
+- name: Save PM2 process list
+  command: pm2 save
+  when: node_app.stat.exists and use_pm2 | default(true)
+  become_user: "{{ app_user }}"
+
+- name: Setup PM2 startup script
+  command: pm2 startup systemd -u {{ app_user }} --hp /home/{{ app_user }}
+  when: node_app.stat.exists and use_pm2 | default(true)
+  become_user: "{{ app_user }}"
+  register: pm2_startup
+  failed_when: false
+
+- name: Enable PM2 startup
+  shell: pm2 startup systemd -u {{ app_user }} --hp /home/{{ app_user }} && env PATH=$PATH:/usr/bin pm2 startup systemd -u {{ app_user }} --hp /home/{{ app_user }} --skip-env
+  when: node_app.stat.exists and use_pm2 | default(true)
+  become: yes
+  failed_when: false
+
+# Python Application
+- name: Kiểm tra Python application (requirements.txt hoặc pyproject.toml)
+  stat:
+    path: "{{ project_path }}/requirements.txt"
+  register: python_app
+  failed_when: false
+
+- name: Kiểm tra Python application (pyproject.toml)
+  stat:
+    path: "{{ project_path }}/pyproject.toml"
+  register: python_app_toml
+  failed_when: false
+
+- name: Tạo Supervisor config cho Python app
+  template:
+    src: supervisor-python.conf.j2
+    dest: /etc/supervisor/conf.d/{{ app_name | default('python-app') }}.conf
+    mode: '0644'
+  when: python_app.stat.exists or python_app_toml.stat.exists
+  notify: restart supervisor
+
+- name: Reread Supervisor config
+  supervisorctl:
+    name: "{{ app_name | default('python-app') }}"
+    state: present
+  when: python_app.stat.exists or python_app_toml.stat.exists
+
+# PHP Application
+- name: Kiểm tra PHP application (composer.json hoặc index.php)
+  stat:
+    path: "{{ project_path }}/composer.json"
+  register: php_app
+  failed_when: false
+
+- name: Kiểm tra PHP application (index.php)
+  stat:
+    path: "{{ project_path }}/index.php"
+  register: php_app_index
+  failed_when: false
+
+- name: Cấu hình Nginx cho PHP app
+  template:
+    src: nginx-php.conf.j2
+    dest: /etc/nginx/sites-available/{{ app_name | default('php-app') }}
+    mode: '0644'
+  when: php_app.stat.exists or php_app_index.stat.exists
+  notify: restart nginx
+
+- name: Enable PHP app site
+  file:
+    src: /etc/nginx/sites-available/{{ app_name | default('php-app') }}
+    dest: /etc/nginx/sites-enabled/{{ app_name | default('php-app') }}
+    state: link
+  when: php_app.stat.exists or php_app_index.stat.exists
+  notify: restart nginx
+
+- name: Remove default Nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  when: php_app.stat.exists or php_app_index.stat.exists
+  notify: restart nginx
+
+# Django Application
+- name: Kiểm tra Django application (manage.py)
+  stat:
+    path: "{{ project_path }}/manage.py"
+  register: django_app
+
+- name: Run Django migrations
+  django_manage:
+    command: migrate
+    project_path: "{{ project_path }}"
+    virtualenv: "{{ project_path }}/venv"
+  when: django_app.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    DJANGO_SETTINGS_MODULE: "{{ django_settings_module | default('myproject.settings') }}"
+
+- name: Collect Django static files
+  django_manage:
+    command: collectstatic
+    project_path: "{{ project_path }}"
+    virtualenv: "{{ project_path }}/venv"
+  when: django_app.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    DJANGO_SETTINGS_MODULE: "{{ django_settings_module | default('myproject.settings') }}"
+
+- name: Tạo Supervisor config cho Django
+  template:
+    src: supervisor-django.conf.j2
+    dest: /etc/supervisor/conf.d/{{ app_name | default('django-app') }}.conf
+    mode: '0644'
+  when: django_app.stat.exists
+  notify: restart supervisor
+
+# Flask Application
+- name: Kiểm tra Flask application (app.py hoặc wsgi.py)
+  stat:
+    path: "{{ project_path }}/app.py"
+  register: flask_app
+  failed_when: false
+
+- name: Kiểm tra Flask application (wsgi.py)
+  stat:
+    path: "{{ project_path }}/wsgi.py"
+  register: flask_app_wsgi
+  failed_when: false
+
+- name: Tạo Supervisor config cho Flask
+  template:
+    src: supervisor-flask.conf.j2
+    dest: /etc/supervisor/conf.d/{{ app_name | default('flask-app') }}.conf
+    mode: '0644'
+  when: flask_app.stat.exists or flask_app_wsgi.stat.exists
+  notify: restart supervisor
+
+# Ruby/Rails Application
+- name: Kiểm tra Rails application (config.ru)
+  stat:
+    path: "{{ project_path }}/config.ru"
+  register: rails_app
+
+- name: Run Rails migrations
+  command: bundle exec rails db:migrate
+  args:
+    chdir: "{{ project_path }}"
+  when: rails_app.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    RAILS_ENV: "{{ rails_env | default('production') }}"
+
+- name: Precompile Rails assets
+  command: bundle exec rails assets:precompile
+  args:
+    chdir: "{{ project_path }}"
+  when: rails_app.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    RAILS_ENV: "{{ rails_env | default('production') }}"
+
+- name: Tạo Puma config cho Rails
+  template:
+    src: puma.rb.j2
+    dest: "{{ project_path }}/config/puma.rb"
+    mode: '0644'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: rails_app.stat.exists
+
+- name: Tạo Supervisor config for Puma
+  template:
+    src: supervisor-puma.conf.j2
+    dest: /etc/supervisor/conf.d/{{ app_name | default('rails-app') }}.conf
+    mode: '0644'
+  when: rails_app.stat.exists
+  notify: restart supervisor
+
+# Go Application
+- name: Kiểm tra Go application (main.go)
+  stat:
+    path: "{{ project_path }}/main.go"
+  register: go_app
+
+- name: Build Go application
+  command: go build -o {{ app_name | default('app') }}
+  args:
+    chdir: "{{ project_path }}"
+  when: go_app.stat.exists
+  become_user: "{{ app_user }}"
+  environment:
+    GOPATH: /home/{{ app_user }}/go
+    CGO_ENABLED: 0
+
+- name: Tạo systemd service cho Go app
+  template:
+    src: systemd-go.service.j2
+    dest: /etc/systemd/system/{{ app_name | default('go-app') }}.service
+    mode: '0644'
+  when: go_app.stat.exists
+  notify: restart go-app
+
+- name: Enable và start Go app service
+  systemd:
+    name: "{{ app_name | default('go-app') }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: go_app.stat.exists
+
+# Generic Systemd Service
+- name: Tạo generic systemd service
+  template:
+    src: systemd-generic.service.j2
+    dest: /etc/systemd/system/{{ app_name | default('app') }}.service
+    mode: '0644'
+  when: create_systemd_service | default(false)
+  notify: restart generic-app
+
+- name: Enable và start generic service
+  systemd:
+    name: "{{ app_name | default('app') }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: create_systemd_service | default(false)
+
+# Health check
+- name: Chờ ứng dụng start
+  wait_for:
+    port: "{{ app_port | default(80) }}"
+    delay: 5
+    timeout: 60
+  when: app_port is defined
+  failed_when: false
+
+- name: Kiểm tra application health
+  uri:
+    url: "http://localhost:{{ app_port | default(80) }}{{ health_check_path | default('/health') }}"
+    status_code: "{{ health_check_status | default(200) }}"
+  when: app_port is defined and health_check_enabled | default(true)
+  failed_when: false
+  register: health_check
+
+- name: Hiển thị health check result
+  debug:
+    msg: "Health check: {{ 'PASSED' if health_check.status == 200 else 'FAILED' }}"
+  when: app_port is defined and health_check_enabled | default(true)
+
+handlers:
+  - name: restart nginx
+    service:
+      name: nginx
+      state: restarted
+
+  - name: restart supervisor
+    supervisorctl:
+      name: all
+      state: restarted
+
+  - name: restart go-app
+    systemd:
+      name: "{{ app_name | default('go-app') }}"
+      state: restarted
+      daemon_reload: yes
+
+  - name: restart generic-app
+    systemd:
+      name: "{{ app_name | default('app') }}"
+      state: restarted
+      daemon_reload: yes

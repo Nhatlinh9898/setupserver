@@ -1,0 +1,17 @@
+---
+# Handlers cho App Hardening
+
+- name: restart app-hardening
+  systemd:
+    name: app-hardening
+    state: restarted
+
+- name: reload aide
+  command: aide --update
+  async: 300
+  poll: 10
+
+- name: reload tripwire
+  command: tripwire --check
+  async: 300
+  poll: 10

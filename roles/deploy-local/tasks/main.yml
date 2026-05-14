@@ -1,0 +1,64 @@
+---
+# Deploy Local Role - Copy code từ local directory sang server
+
+- name: Tạo directory cho ứng dụng
+  file:
+    path: "{{ project_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+
+- name: Copy code từ local directory sang server
+  synchronize:
+    src: "{{ local_code_path }}"
+    dest: "{{ project_path }}"
+    delete: yes
+    recursive: yes
+    owner: yes
+    group: yes
+  when: local_code_path is defined
+
+- name: Copy .env file từ template
+  template:
+    src: env.j2
+    dest: "{{ project_path }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: env_vars is defined
+
+- name: Copy .env file từ content
+  copy:
+    content: "{{ env_content }}"
+    dest: "{{ project_path }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: env_content is defined
+
+- name: Setup permissions cho project
+  file:
+    path: "{{ project_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    recurse: yes
+
+- name: Tạo log directory
+  file:
+    path: "{{ project_path }}/logs"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+
+- name: Tạo upload directory (nếu cần)
+  file:
+    path: "{{ project_path }}/uploads"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: create_upload_dir | default(false)

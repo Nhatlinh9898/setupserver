@@ -1,0 +1,19 @@
+[Unit]
+Description=AI Healing Service
+After=network.target ollama.service
+
+[Service]
+Type=simple
+User={{ app_user | default('admin') }}
+Group={{ app_user | default('admin') }}
+WorkingDirectory=/opt/ai-healing
+ExecStart=/usr/bin/python3 /opt/ai-healing/healer.py
+Restart=always
+RestartSec=5
+Environment=OLLAMA_HOST=localhost:{{ ollama_api_port | default(11434) }}
+Environment=OLLAMA_MODEL={{ ai_healing_model | default('llama2') }}
+Environment=CHECK_INTERVAL={{ ai_healing_interval | default('60') }}
+Environment=AUTO_HEAL_ENABLED={{ ai_healing_auto_enabled | default('false') }}
+
+[Install]
+WantedBy=multi-user.target

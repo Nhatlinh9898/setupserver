@@ -1,0 +1,13 @@
+[WebService]
+Origins = https://cockpit-apps.s3.amazonaws.com https://10.0.0.0/8
+ProtocolHeader = X-Forwarded-Proto
+ForwardedForHeader = X-Forwarded-For
+MaxStartups = 10
+AllowUnencrypted = false
+
+[Session]
+IdleTimeout = 15
+MaxUnresponsive = 30
+
+[Log]
+Enable = true

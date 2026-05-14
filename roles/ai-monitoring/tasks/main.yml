@@ -1,0 +1,220 @@
+---
+# AI Monitoring Role - AI phân tích logs và metrics tự động
+
+- name: Cài đặt Python dependencies cho AI Monitoring
+  pip:
+    name:
+      - langchain
+      - langchain-community
+      - langchain-ollama
+      - prometheus-api-client
+      - psutil
+      - python-dotenv
+    state: present
+    executable: pip3
+  when: install_ai_monitoring | default(false)
+
+- name: Tạo directory cho AI Monitoring
+  file:
+    path: /opt/ai-monitoring
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy AI Monitoring script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI Monitoring - AI phân tích logs và metrics tự động
+      """
+      import os
+      import subprocess
+      import json
+      import time
+      from datetime import datetime
+      from langchain_ollama import OllamaLLM
+      from langchain.prompts import ChatPromptTemplate
+      from langchain.schema import HumanMessage, SystemMessage
+      import psutil
+
+      # Configuration
+      OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
+      OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+      CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))  # 5 minutes
+
+      class AIMonitor:
+          def __init__(self):
+              self.llm = OllamaLLM(
+                  model=OLLAMA_MODEL,
+                  base_url=f"http://{OLLAMA_HOST}"
+              )
+
+          def get_system_metrics(self):
+              """Lấy metrics hệ thống"""
+              metrics = {
+                  "timestamp": datetime.now().isoformat(),
+                  "cpu_percent": psutil.cpu_percent(interval=1),
+                  "memory": {
+                      "percent": psutil.virtual_memory().percent,
+                      "available": psutil.virtual_memory().available / (1024**3),
+                      "total": psutil.virtual_memory().total / (1024**3)
+                  },
+                  "disk": {
+                      "percent": psutil.disk_usage('/').percent,
+                      "free": psutil.disk_usage('/').free / (1024**3),
+                      "total": psutil.disk_usage('/').total / (1024**3)
+                  },
+                  "network": {
+                      "bytes_sent": psutil.net_io_counters().bytes_sent,
+                      "bytes_recv": psutil.net_io_counters().bytes_recv
+                  }
+              }
+              return metrics
+
+          def get_recent_errors(self):
+              """Lấy các lỗi gần đây từ logs"""
+              try:
+                  result = subprocess.run(
+                      "journalctl -p err -n 50 --no-pager",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  return result.stdout
+              except Exception as e:
+                  return str(e)
+
+          def analyze_with_ai(self, metrics, errors):
+              """Phân tích metrics và errors với AI"""
+              system_prompt = """Bạn là một AI chuyên gia monitoring và troubleshooting.
+              Nhiệm vụ của bạn:
+              - Phân tích metrics hệ thống (CPU, Memory, Disk, Network)
+              - Phát hiện anomalies và vấn đề tiềm ẩn
+              - Phân tích lỗi từ logs
+              - Đề xuất giải pháp và hành động
+              
+              Hãy trả lời ngắn gọn, chỉ ra vấn đề và đề xuất giải pháp."""
+              
+              context = f"""
+              System Metrics:
+              {json.dumps(metrics, indent=2)}
+              
+              Recent Errors:
+              {errors[:2000]}
+              """
+              
+              messages = [
+                  SystemMessage(content=system_prompt),
+                  HumanMessage(content="Phân tích trạng thái hệ thống và đề xuất giải pháp nếu có vấn đề.")
+              ]
+              
+              response = self.llm.invoke(messages)
+              return response
+
+          def check_thresholds(self, metrics):
+              """Kiểm tra thresholds và cảnh báo"""
+              alerts = []
+              
+              if metrics['cpu_percent'] > 80:
+                  alerts.append(f"⚠️ CPU usage cao: {metrics['cpu_percent']}%")
+              
+              if metrics['memory']['percent'] > 80:
+                  alerts.append(f"⚠️ Memory usage cao: {metrics['memory']['percent']}%")
+              
+              if metrics['disk']['percent'] > 80:
+                  alerts.append(f"⚠️ Disk usage cao: {metrics['disk']['percent']}%")
+              
+              return alerts
+
+          def save_analysis(self, analysis):
+              """Lưu analysis vào file"""
+              log_dir = "/opt/ai-monitoring/logs"
+              os.makedirs(log_dir, exist_ok=True)
+              
+              log_file = f"{log_dir}/analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+              with open(log_file, 'w') as f:
+                  f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                  f.write(f"Analysis:\n{analysis}\n")
+              
+              return log_file
+
+          def run(self):
+              """Chạy monitoring loop"""
+              print("🤖 AI Monitoring started...")
+              
+              while True:
+                  try:
+                      # Lấy metrics
+                      metrics = self.get_system_metrics()
+                      
+                      # Lấy errors
+                      errors = self.get_recent_errors()
+                      
+                      # Kiểm tra thresholds
+                      alerts = self.check_thresholds(metrics)
+                      if alerts:
+                          print("\n".join(alerts))
+                      
+                      # Phân tích với AI
+                      analysis = self.analyze_with_ai(metrics, errors)
+                      
+                      # Lưu analysis
+                      log_file = self.save_analysis(analysis)
+                      
+                      print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Analysis saved to {log_file}")
+                      print(f"AI Analysis: {analysis[:200]}...")
+                      
+                      # Sleep
+                      time.sleep(CHECK_INTERVAL)
+                      
+                  except KeyboardInterrupt:
+                      print("\n👋 AI Monitoring stopped.")
+                      break
+                  except Exception as e:
+                      print(f"❌ Error: {e}")
+                      time.sleep(60)
+
+      def main():
+          monitor = AIMonitor()
+          monitor.run()
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-monitoring/monitor.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_monitoring | default(false)
+
+- name: Tạo logs directory
+  file:
+    path: /opt/ai-monitoring/logs
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_monitoring | default(false)
+
+- name: Tạo systemd service cho AI Monitoring
+  template:
+    src: ai-monitoring.service.j2
+    dest: /etc/systemd/system/ai-monitoring.service
+    mode: '0644'
+  when: install_ai_monitoring | default(false)
+  notify: restart ai-monitoring
+
+- name: Enable AI Monitoring service
+  systemd:
+    name: ai-monitoring
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ai_monitoring | default(false) and ai_monitoring_enabled | default(false)
+
+handlers:
+  - name: restart ai-monitoring
+    systemd:
+      name: ai-monitoring
+      state: restarted

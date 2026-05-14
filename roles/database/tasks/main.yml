@@ -1,0 +1,135 @@
+---
+# Database Role - Cài đặt MySQL hoặc PostgreSQL
+
+- name: Cài đặt MySQL Server (Ubuntu/Debian)
+  apt:
+    name:
+      - mysql-server
+      - mysql-client
+      - python3-pymysql
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian" and install_mysql | default(true)
+  notify: restart mysql
+
+- name: Cài đặt MySQL Server (CentOS/RHEL)
+  yum:
+    name:
+      - mysql-server
+      - mysql
+      - python3-PyMySQL
+    state: present
+  when: ansible_os_family == "RedHat" and install_mysql | default(true)
+  notify: restart mysql
+
+- name: Cài đặt PostgreSQL (Ubuntu/Debian)
+  apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - python3-psycopg2
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian" and install_postgresql | default(false)
+  notify: restart postgresql
+
+- name: Cài đặt PostgreSQL (CentOS/RHEL)
+  yum:
+    name:
+      - postgresql-server
+      - postgresql-contrib
+      - python3-psycopg2
+    state: present
+  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
+  notify: restart postgresql
+
+- name: Khởi tạo PostgreSQL database (CentOS)
+  command: postgresql-setup initdb
+  args:
+    creates: /var/lib/pgsql/data/postgresql.conf
+  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
+  notify: restart postgresql
+
+- name: Enable MySQL service
+  service:
+    name: mysql
+    enabled: yes
+    state: started
+  when: install_mysql | default(true)
+
+- name: Enable PostgreSQL service
+  service:
+    name: postgresql
+    enabled: yes
+    state: started
+  when: install_postgresql | default(false)
+
+- name: Tạo MySQL database và user
+  mysql_db:
+    name: "{{ mysql_database | default('appdb') }}"
+    state: present
+  when: install_mysql | default(true)
+  become: yes
+
+- name: Tạo MySQL user
+  mysql_user:
+    name: "{{ mysql_user | default('appuser') }}"
+    password: "{{ mysql_password | default('password123') }}"
+    priv: "{{ mysql_database | default('appdb') }}.*:ALL"
+    state: present
+  when: install_mysql | default(true)
+  become: yes
+
+- name: Cấu hình MySQL để chấp nhận kết nối remote
+  template:
+    src: mysql.cnf.j2
+    dest: /etc/mysql/mysql.conf.d/mysqld.cnf
+    backup: yes
+  when: ansible_os_family == "Debian" and install_mysql | default(true)
+  notify: restart mysql
+
+- name: Mở port MySQL trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "3306"
+    proto: tcp
+  when: ansible_os_family == "Debian" and install_mysql | default(true)
+
+- name: Mở port MySQL trên firewall (CentOS)
+  firewalld:
+    service: mysql
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and install_mysql | default(true)
+  notify: reload firewalld
+
+- name: Mở port PostgreSQL trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "5432"
+    proto: tcp
+  when: ansible_os_family == "Debian" and install_postgresql | default(false)
+
+- name: Mở port PostgreSQL trên firewall (CentOS)
+  firewalld:
+    service: postgresql
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
+  notify: reload firewalld
+
+handlers:
+  - name: restart mysql
+    service:
+      name: mysql
+      state: restarted
+
+  - name: restart postgresql
+    service:
+      name: postgresql
+      state: restarted
+
+  - name: reload firewalld
+    service:
+      name: firewalld
+      state: reloaded

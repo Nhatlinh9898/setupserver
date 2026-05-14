@@ -1,0 +1,132 @@
+---
+# Webmin Role - Cài đặt Webmin Web Interface
+
+- name: Thêm Webmin repository key (Ubuntu/Debian)
+  apt_key:
+    url: https://download.webmin.com/jcameron-key.asc
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Thêm Webmin repository (Ubuntu/Debian)
+  apt_repository:
+    repo: "deb https://download.webmin.com/download/repository sarge contrib"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Cài đặt Webmin (Ubuntu/Debian)
+  apt:
+    name: webmin
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+  notify: restart webmin
+
+- name: Thêm Webmin repository (CentOS/RHEL)
+  yum:
+    name: https://download.webmin.com/download/newkey/webmin-newkey-1.0-1.noarch.rpm
+    state: present
+    disable_gpg_check: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Thêm Webmin repository file (CentOS/RHEL)
+  template:
+    src: webmin.repo.j2
+    dest: /etc/yum.repos.d/webmin.repo
+    mode: '0644'
+  when: ansible_os_family == "RedHat"
+
+- name: Cài đặt Webmin (CentOS/RHEL)
+  yum:
+    name: webmin
+    state: present
+  when: ansible_os_family == "RedHat"
+  notify: restart webmin
+
+- name: Enable Webmin service
+  systemd:
+    name: webmin
+    enabled: yes
+    state: started
+
+- name: Mở port Webmin trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "10000"
+    proto: tcp
+  when: ansible_os_family == "Debian"
+
+- name: Mở port Webmin trên firewall (CentOS)
+  firewalld:
+    port: 10000/tcp
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+- name: Cấu hình Webmin SSL/TLS
+  lineinfile:
+    path: /etc/webmin/miniserv.conf
+    regexp: "^ssl="
+    line: "ssl=1"
+  notify: restart webmin
+
+- name: Cấu hình Webmin cho phép remote access
+  lineinfile:
+    path: /etc/webmin/miniserv.conf
+    regexp: "^allow="
+    line: "allow=0.0.0.0/0"
+  notify: restart webmin
+
+- name: Cấu hình Webmin theme
+  lineinfile:
+    path: /etc/webmin/config
+    regexp: "^theme="
+    line: "theme=gray-theme"
+  notify: restart webmin
+
+- name: Cấu hình Webmin language
+  lineinfile:
+    path: /etc/webmin/config
+    regexp: "^lang="
+    line: "lang=en"
+  notify: restart webmin
+
+- name: Cài đặt Webmin modules (tùy chọn)
+  apt:
+    name:
+      - webmin-apache
+      - webmin-bind8
+      - webmin-cluster
+      - webmin-dhcpd
+      - webmin-firewall
+      - webmin-fdisk
+      - webmin-grub
+      - webmin-htpasswd
+      - webmin-inetd
+      - webmin-logrotate
+      - webmin-mount
+      - webmin-nfs
+      - webmin-pam
+      - webmin-postfix
+      - webmin-proftpd
+      - webmin-qmailadmin
+      - webmin-samba
+      - webmin-sendmail
+      - webmin-squid
+      - webmin-sshd
+      - webmin-useradmin
+      - webmin-usermin
+    state: present
+  when: ansible_os_family == "Debian" and webmin_install_modules | default(false)
+  notify: restart webmin
+
+handlers:
+  - name: restart webmin
+    systemd:
+      name: webmin
+      state: restarted
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

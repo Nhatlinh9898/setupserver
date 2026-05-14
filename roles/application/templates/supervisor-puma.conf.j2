@@ -1,0 +1,9 @@
+[program:{{ app_name | default('rails-app') }}]
+command=bundle exec puma -C config/puma.rb
+directory={{ project_path }}
+user={{ app_user }}
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile={{ project_path }}/logs/supervisor.log
+environment=RAILS_ENV="{{ rails_env | default('production') }}",PATH="{{ project_path }}/bin:/home/{{ app_user }}/.rbenv/bin:/home/{{ app_user }}/.rbenv/shims"

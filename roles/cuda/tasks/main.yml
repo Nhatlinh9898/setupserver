@@ -1,0 +1,148 @@
+---
+# CUDA Role - Cài đặt NVIDIA CUDA Drivers và Toolkit cho GPU support
+
+- name: Kiểm tra GPU NVIDIA
+  command: lspci | grep -i nvidia
+  register: nvidia_gpu
+  failed_when: false
+  changed_when: false
+
+- name: Hiển thị thông tin GPU
+  debug:
+    msg: "NVIDIA GPU detected: {{ nvidia_gpu.stdout }}"
+  when: nvidia_gpu.rc == 0
+
+- name: Thông báo nếu không có GPU NVIDIA
+  debug:
+    msg: "Không phát hiện GPU NVIDIA. CUDA sẽ không được cài đặt."
+  when: nvidia_gpu.rc != 0
+
+- name: Cài đặt CUDA (Ubuntu/Debian)
+  block:
+    - name: Thêm NVIDIA repository key
+      apt_key:
+        url: https://developer.download.nvidia.com/compute/cuda/repos/{{ ansible_distribution | lower }}{{ ansible_distribution_version }}/x86_64/3bf863cc.pub
+        state: present
+
+    - name: Thêm NVIDIA repository
+      apt_repository:
+        repo: "deb https://developer.download.nvidia.com/compute/cuda/repos/{{ ansible_distribution | lower }}{{ ansible_distribution_version }}/x86_64/ /"
+        state: present
+
+    - name: Cài đặt CUDA toolkit
+      apt:
+        name:
+          - cuda-toolkit-{{ cuda_version | default('12-1') }}
+          - nvidia-driver-{{ nvidia_driver_version | default('535') }}
+        state: present
+        update_cache: yes
+
+    - name: Thêm CUDA vào PATH
+      lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+      loop:
+        - "PATH=/usr/local/cuda-{{ cuda_version | default('12-1') }}/bin:$PATH"
+        - "LD_LIBRARY_PATH=/usr/local/cuda-{{ cuda_version | default('12-1') }}/lib64:$LD_LIBRARY_PATH"
+        - "CUDA_HOME=/usr/local/cuda-{{ cuda_version | default('12-1') }}"
+
+  when:
+    - ansible_os_family == "Debian"
+    - nvidia_gpu.rc == 0
+    - install_cuda | default(false)
+
+- name: Cài đặt CUDA (CentOS/RHEL)
+  block:
+    - name: Thêm NVIDIA repository
+      yum:
+        name: https://developer.download.nvidia.com/compute/cuda/repos/rhel{{ ansible_distribution_major_version }}/x86_64/cuda-rhel{{ ansible_distribution_major_version }}.repo
+        state: present
+        disable_gpg_check: yes
+
+    - name: Cài đặt CUDA toolkit
+      yum:
+        name:
+          - cuda-toolkit-{{ cuda_version | default('12-1') }}
+          - nvidia-driver
+        state: present
+
+    - name: Thêm CUDA vào PATH
+      lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+      loop:
+        - "PATH=/usr/local/cuda-{{ cuda_version | default('12-1') }}/bin:$PATH"
+        - "LD_LIBRARY_PATH=/usr/local/cuda-{{ cuda_version | default('12-1') }}/lib64:$LD_LIBRARY_PATH"
+        - "CUDA_HOME=/usr/local/cuda-{{ cuda_version | default('12-1') }}"
+
+  when:
+    - ansible_os_family == "RedHat"
+    - nvidia_gpu.rc == 0
+    - install_cuda | default(false)
+
+- name: Cài đặt cuDNN (CUDA Deep Neural Network library)
+  block:
+    - name: Download cuDNN
+      get_url:
+        url: "{{ cudnn_url }}"
+        dest: /tmp/cudnn.tar.gz
+        mode: '0644'
+      when: cudnn_url is defined
+
+    - name: Extract cuDNN
+      unarchive:
+        src: /tmp/cudnn.tar.gz
+        dest: /usr/local/cuda-{{ cuda_version | default('12-1') }}
+        remote_src: yes
+      when: cudnn_url is defined
+
+  when:
+    - nvidia_gpu.rc == 0
+    - install_cuda | default(false)
+    - install_cudnn | default(false)
+
+- name: Cài đặt PyTorch với CUDA support
+  pip:
+    name:
+      - torch
+      - torchvision
+      - torchaudio
+      --index-url https://download.pytorch.org/whl/cu{{ cuda_version_short | default('121') }}
+    state: present
+    executable: pip3
+  when:
+    - nvidia_gpu.rc == 0
+    - install_cuda | default(false)
+    - install_pytorch_cuda | default(false)
+  ignore_errors: yes
+
+- name: Kiểm tra CUDA installation
+  command: nvcc --version
+  register: nvcc_version
+  failed_when: false
+  changed_when: false
+
+- name: Hiển thị CUDA version
+  debug:
+    msg: "CUDA version: {{ nvcc_version.stdout }}"
+  when: nvcc_version.rc == 0
+
+- name: Kiểm tra nvidia-smi
+  command: nvidia-smi
+  register: nvidia_smi
+  failed_when: false
+  changed_when: false
+
+- name: Hiển thị GPU info
+  debug:
+    msg: "{{ nvidia_smi.stdout_lines }}"
+  when: nvidia_smi.rc == 0
+
+- name: Tạo directory cho CUDA models
+  file:
+    path: /opt/models/cuda
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: nvidia_gpu.rc == 0

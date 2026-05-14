@@ -1,0 +1,120 @@
+---
+# Deploy Role - Clone và deploy code từ Git repository
+
+- name: Kiểm tra nếu Git đã được cài đặt
+  package:
+    name: git
+    state: present
+
+- name: Tạo directory cho ứng dụng
+  file:
+    path: "{{ project_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+
+- name: Setup SSH key cho Git private repository
+  copy:
+    content: "{{ git_ssh_private_key }}"
+    dest: "/home/{{ app_user }}/.ssh/deploy_key"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: git_ssh_private_key is defined
+
+- name: Cấu hình SSH cho Git
+  template:
+    src: git-ssh-config.j2
+    dest: "/home/{{ app_user }}/.ssh/config"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: git_ssh_private_key is defined
+
+- name: Clone repository từ Git (public)
+  git:
+    repo: "{{ git_repository }}"
+    dest: "{{ project_path }}"
+    version: "{{ git_branch | default('main') }}"
+    force: yes
+    update: yes
+  when: git_ssh_private_key is not defined
+  become_user: "{{ app_user }}"
+
+- name: Clone repository từ Git (private với SSH key)
+  git:
+    repo: "{{ git_repository }}"
+    dest: "{{ project_path }}"
+    version: "{{ git_branch | default('main') }}"
+    force: yes
+    update: yes
+    key_file: "/home/{{ app_user }}/.ssh/deploy_key"
+  when: git_ssh_private_key is defined
+  become_user: "{{ app_user }}"
+
+- name: Clone repository từ Git (private với username/password)
+  git:
+    repo: "{{ git_repository }}"
+    dest: "{{ project_path }}"
+    version: "{{ git_branch | default('main') }}"
+    force: yes
+    update: yes
+    password: "{{ git_password }}"
+  when: git_password is defined
+  become_user: "{{ app_user }}"
+
+- name: Copy .env file từ template
+  template:
+    src: env.j2
+    dest: "{{ project_path }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: env_vars is defined
+
+- name: Copy .env file từ content
+  copy:
+    content: "{{ env_content }}"
+    dest: "{{ project_path }}/.env"
+    mode: '0600'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: env_content is defined
+
+- name: Setup permissions cho project
+  file:
+    path: "{{ project_path }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    recurse: yes
+
+- name: Tạo log directory
+  file:
+    path: "{{ project_path }}/logs"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+
+- name: Tạo upload directory (nếu cần)
+  file:
+    path: "{{ project_path }}/uploads"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  when: create_upload_dir | default(false)
+
+- name: Git log - Lấy commit hash hiện tại
+  command: git rev-parse HEAD
+  args:
+    chdir: "{{ project_path }}"
+  register: git_commit
+  become_user: "{{ app_user }}"
+
+- name: Hiển thị commit hash
+  debug:
+    msg: "Deployed commit: {{ git_commit.stdout }}"

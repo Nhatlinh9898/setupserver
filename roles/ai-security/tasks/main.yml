@@ -1,0 +1,228 @@
+---
+# AI Security Role - Enforce security policies cho AI
+
+- name: Tạo directory cho AI Security
+  file:
+    path: /opt/ai-security
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy AI Security Policy file
+  copy:
+    src: ai-security-policy.yml
+    dest: /opt/ai-security/security-policy.yml
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy AI Security Enforcer script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI Security Enforcer - Enforce security policies cho AI
+      """
+      import os
+      import yaml
+      import subprocess
+      import json
+      from datetime import datetime
+      from pathlib import Path
+
+      # Load security policy
+      POLICY_FILE = "/opt/ai-security/security-policy.yml"
+      AUDIT_LOG = "/var/log/ai-audit.log"
+
+      class AISecurityEnforcer:
+          def __init__(self):
+              self.policy = self.load_policy()
+              self.operation_mode = self.policy.get('ai_security', {}).get('operation_mode', 'read_only')
+          
+          def load_policy(self):
+              """Load security policy từ file"""
+              try:
+                  with open(POLICY_FILE, 'r') as f:
+                      return yaml.safe_load(f)
+              except Exception as e:
+                  print(f"⚠️ Không thể load policy: {e}")
+                  return {}
+          
+          def is_path_forbidden(self, path):
+              """Kiểm tra xem đường dẫn có bị cấm không"""
+              forbidden_paths = self.policy.get('ai_security', {}).get('forbidden_paths', [])
+              
+              for forbidden_pattern in forbidden_paths:
+                  # Chuyển wildcard sang regex
+                  pattern = forbidden_pattern.replace('*', '.*')
+                  import re
+                  if re.match(pattern, path):
+                      return True, forbidden_pattern
+              
+              return False, None
+          
+          def is_command_forbidden(self, command):
+              """Kiểm tra xem lệnh có bị cấm không"""
+              forbidden_commands = self.policy.get('ai_security', {}).get('forbidden_commands', [])
+              allowed_commands = self.policy.get('ai_security', {}).get('allowed_commands', [])
+              
+              # Nếu ở read_only mode, chỉ cho phép allowed commands
+              if self.operation_mode == 'read_only':
+                  for allowed in allowed_commands:
+                      if command.startswith(allowed):
+                          return False, None
+                  return True, "Command not in allowed list (read_only mode)"
+              
+              # Kiểm tra forbidden commands
+              for forbidden in forbidden_commands:
+                  if forbidden in command:
+                      return True, f"Command contains forbidden: {forbidden}"
+              
+              return False, None
+          
+          def check_action_permission(self, action):
+              """Kiểm tra xem hành động có cần phê duyệt không"""
+              require_approval = self.policy.get('ai_security', {}).get('require_approval_for', [])
+              return action in require_approval
+          
+          def log_audit(self, action, result, details=""):
+              """Ghi log audit"""
+              try:
+                  os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
+                  
+                  log_entry = {
+                      "timestamp": datetime.now().isoformat(),
+                      "action": action,
+                      "result": result,
+                      "details": details
+                  }
+                  
+                  with open(AUDIT_LOG, 'a') as f:
+                      f.write(json.dumps(log_entry) + "\n")
+                  
+                  print(f"📝 Audit log: {action} - {result}")
+              except Exception as e:
+                  print(f"⚠️ Không thể ghi audit log: {e}")
+          
+          def execute_command(self, command, ai_component="unknown"):
+              """Thực thi lệnh với security check"""
+              # Kiểm tra lệnh
+              is_forbidden, reason = self.is_command_forbidden(command)
+              
+              if is_forbidden:
+                  self.log_audit(f"command_blocked_{ai_component}", "denied", f"Command: {command}, Reason: {reason}")
+                  raise PermissionError(f"Command bị cấm: {reason}")
+              
+              # Kiểm tra xem có cần phê duyệt không
+              if self.check_action_permission("execute_commands"):
+                  self.log_audit(f"command_approval_{ai_component}", "pending_approval", f"Command: {command}")
+                  raise PermissionError(f"Command cần phê duyệt: {command}")
+              
+              # Thực thi lệnh
+              try:
+                  result = subprocess.run(
+                      command,
+                      shell=True,
+                      capture_output=True,
+                      text=True,
+                      timeout=self.policy.get('ai_security', {}).get('action_timeout', {}).get('command_execution', 10)
+                  )
+                  
+                  self.log_audit(f"command_executed_{ai_component}", "success", f"Command: {command}")
+                  return result
+              except subprocess.TimeoutExpired:
+                  self.log_audit(f"command_timeout_{ai_component}", "timeout", f"Command: {command}")
+                  raise TimeoutError(f"Command timeout: {command}")
+              except Exception as e:
+                  self.log_audit(f"command_error_{ai_component}", "error", f"Command: {command}, Error: {str(e)}")
+                  raise
+          
+          def modify_file(self, file_path, ai_component="unknown"):
+              """Kiểm tra quyền sửa file"""
+              # Kiểm tra đường dẫn
+              is_forbidden, reason = self.is_path_forbidden(file_path)
+              
+              if is_forbidden:
+                  self.log_audit(f"file_modify_blocked_{ai_component}", "denied", f"File: {file_path}, Reason: {reason}")
+                  raise PermissionError(f"File path bị cấm: {reason}")
+              
+              # Ở read_only mode, không cho phép sửa
+              if self.operation_mode == 'read_only':
+                  self.log_audit(f"file_modify_blocked_{ai_component}", "denied", f"File: {file_path}, Reason: read_only mode")
+                  raise PermissionError(f"Read-only mode: không được sửa file")
+              
+              # Kiểm tra xem có cần phê duyệt không
+              if self.check_action_permission("modify_files"):
+                  self.log_audit(f"file_modify_approval_{ai_component}", "pending_approval", f"File: {file_path}")
+                  raise PermissionError(f"File modification cần phê duyệt: {file_path}")
+              
+              self.log_audit(f"file_modify_allowed_{ai_component}", "allowed", f"File: {file_path}")
+              return True
+          
+          def restart_service(self, service, ai_component="unknown"):
+              """Kiểm tra quyền restart service"""
+              # Kiểm tra xem có cần phê duyệt không
+              if self.check_action_permission("restart_services"):
+                  self.log_audit(f"service_restart_approval_{ai_component}", "pending_approval", f"Service: {service}")
+                  raise PermissionError(f"Service restart cần phê duyệt: {service}")
+              
+              self.log_audit(f"service_restart_allowed_{ai_component}", "allowed", f"Service: {service}")
+              return True
+
+      def main():
+          enforcer = AISecurityEnforcer()
+          
+          # Test
+          print("🔒 AI Security Enforcer initialized")
+          print(f"Operation mode: {enforcer.operation_mode}")
+          
+          # Test command check
+          test_commands = [
+              "systemctl status nginx",
+              "rm -rf /opt/apps/myapp/src",
+              "cat /var/log/syslog"
+          ]
+          
+          for cmd in test_commands:
+              try:
+                  is_forbidden, reason = enforcer.is_command_forbidden(cmd)
+                  if is_forbidden:
+                      print(f"❌ Blocked: {cmd} - {reason}")
+                  else:
+                      print(f"✅ Allowed: {cmd}")
+              except Exception as e:
+                  print(f"❌ Error: {e}")
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-security/enforcer.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo audit log directory
+  file:
+    path: /var/log/ai-audit
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo systemd service cho AI Security (optional - để monitor)
+  copy:
+    content: |
+      [Unit]
+      Description=AI Security Enforcer
+      After=network.target
+
+      [Service]
+      Type=simple
+      User={{ app_user | default('admin') }}
+      ExecStart=/usr/bin/python3 /opt/ai-security/enforcer.py
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/ai-security.service
+    mode: '0644'

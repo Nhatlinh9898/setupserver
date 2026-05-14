@@ -1,0 +1,406 @@
+---
+# Container Isolation Role - Chạy app trong container để cô lập (Lớp 2B: Container Sandbox)
+# Mục đích: Nếu AI có sai sót, chỉ ảnh hưởng đến container, không ảnh hưởng host
+
+- name: Cài đặt Docker
+  apt:
+    name:
+      - docker.io
+      - docker-compose
+    state: present
+    update_cache: yes
+  when: install_container_isolation | default(false)
+
+- name: Bắt đầu Docker service
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+  when: install_container_isolation | default(false)
+
+- name: Tạo directory cho container isolation
+  file:
+    path: /opt/container-isolation
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo Dockerfile cho app container
+  copy:
+    content: |
+      # Dockerfile cho App Container với Security Hardening
+      FROM {{ docker_base_image | default('python:3.9-slim') }}
+
+      # Tạo non-root user
+      RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+      # Cài đặt security tools
+      RUN apt-get update && apt-get install -y \
+          apt-transport-https \
+          ca-certificates \
+          curl \
+          gnupg \
+          lsb-release \
+          && rm -rf /var/lib/apt/lists/*
+
+      # Set working directory
+      WORKDIR /app
+
+      # Copy code
+      COPY . /app/
+
+      # Cài đặt dependencies
+      RUN pip install --no-cache-dir -r requirements.txt
+
+      # Chown to non-root user
+      RUN chown -R appuser:appuser /app
+
+      # Switch to non-root user
+      USER appuser
+
+      # Security: Read-only filesystem
+      # Health check
+      HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+          CMD curl -f http://localhost:{{ app_port | default(3000) }}/health || exit 1
+
+      # Expose port
+      EXPOSE {{ app_port | default(3000) }}
+
+      # Run app
+      CMD ["python", "app.py"]
+    dest: /opt/container-isolation/Dockerfile
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_container_isolation | default(false)
+
+- name: Tạo docker-compose.yml với security hardening
+  copy:
+    content: |
+      version: '3.8'
+
+      services:
+        app:
+          build:
+            context: {{ project_path | default('/opt/apps/my-app') }}
+            dockerfile: /opt/container-isolation/Dockerfile
+          container_name: {{ app_name | default('my-app') }}-secure
+          restart: unless-stopped
+          
+          # Security: Drop all capabilities
+          cap_drop:
+            - ALL
+          # Only add necessary capabilities
+          cap_add:
+            - NET_BIND_SERVICE
+          
+          # Security: No privileged mode
+          privileged: false
+          
+          # Security: Read-only root filesystem
+          read_only: true
+          # Allow tmpfs for writable directories
+          tmpfs:
+            - /tmp
+            - /run
+          
+          # Security: Resource limits
+          deploy:
+            resources:
+              limits:
+                cpus: '{{ container_cpu_limit | default('1.0') }}'
+                memory: {{ container_memory_limit | default('512M') }}
+              reservations:
+                cpus: '{{ container_cpu_reservation | default('0.5') }}'
+                memory: {{ container_memory_reservation | default('256M') }}
+          
+          # Security: User namespace
+          user: "{{ container_uid | default('1000') }}:{{ container_gid | default('1000') }}"
+          
+          # Security: No root
+          security_opt:
+            - no-new-privileges:true
+            - apparmor=docker-default
+            - seccomp=default.json
+          
+          # Security: Network isolation
+          network_mode: bridge
+          
+          # Security: Environment variables
+          environment:
+            - NODE_ENV=production
+            - PYTHONUNBUFFERED=1
+          
+          # Security: Health check
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:{{ app_port | default(3000) }}/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+          
+          # Security: Volume mounts (read-only)
+          volumes:
+            - {{ project_path | default('/opt/apps/my-app') }}:/app:ro
+            - app-data:/app/data
+            - app-logs:/app/logs
+          
+          # Security: Port binding
+          ports:
+            - "{{ app_port | default(3000) }}:{{ app_port | default(3000) }}"
+          
+          # Security: Logging
+          logging:
+            driver: "json-file"
+            options:
+              max-size: "10m"
+              max-file: "3"
+
+      volumes:
+        app-data:
+        app-logs:
+
+      networks:
+        default:
+          driver: bridge
+          ipam:
+            config:
+              - subnet: {{ container_subnet | default('172.20.0.0/16') }}
+    dest: /opt/container-isolation/docker-compose.yml
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_container_isolation | default(false)
+
+- name: Tạo Docker security profile
+  copy:
+    content: |
+      {
+        "defaultAction": "SCMP_ACT_ERRNO",
+        "architectures": [
+          "SCMP_ARCH_X86_64",
+          "SCMP_ARCH_X86",
+          "SCMP_ARCH_X32"
+        ],
+        "syscalls": [
+          {
+            "names": [
+              "arch_prctl",
+              "brk",
+              "capget",
+              "capset",
+              "clone",
+              "close",
+              "connect",
+              "epoll_create1",
+              "epoll_ctl",
+              "epoll_pwait",
+              "epoll_wait",
+              "execve",
+              "exit",
+              "exit_group",
+              "fstat",
+              "futex",
+              "getpid",
+              "getrlimit",
+              "getsockname",
+              "gettimeofday",
+              "ioctl",
+              "mmap",
+              "mprotect",
+              "munmap",
+              "nanosleep",
+              "pipe2",
+              "read",
+              "recvfrom",
+              "recvmsg",
+              "rt_sigaction",
+              "rt_sigprocmask",
+              "rt_sigreturn",
+              "sched_getaffinity",
+              "sched_yield",
+              "sendto",
+              "set_robust_list",
+              "set_tid_address",
+              "sigaltstack",
+              "socket",
+              "socketpair",
+              "stat",
+              "uname",
+              "write",
+              "writev"
+            ],
+            "action": "SCMP_ACT_ALLOW"
+          }
+        ]
+      }
+    dest: /opt/container-isolation/seccomp-profile.json
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_container_isolation | default(false)
+
+- name: Tạo AppArmor profile cho Docker
+  copy:
+    content: |
+      # AppArmor profile for Docker containers
+      # This profile restricts what containers can do
+
+      #include <tunables/global>
+
+      profile docker-default flags=(attach_disconnected,mediate_deleted) {
+        # Allow basic operations
+        capability,
+        dbus,
+        file,
+        network,
+        pixmap,
+        unix,
+
+        # Deny access to sensitive files
+        deny /etc/shadow r,
+        deny /etc/passwd r,
+        deny /root/** rw,
+        deny /home/**/.ssh/** rw,
+
+        # Deny system modification
+        deny /bin/** w,
+        deny /usr/bin/** w,
+        deny /sbin/** w,
+        deny /usr/sbin/** w,
+
+        # Allow app directory
+        {{ project_path | default('/opt/apps/my-app') }}/** r,
+        {{ project_path | default('/opt/apps/my-app') }}/** w,
+
+        # Allow temp
+        /tmp/** rw,
+        /var/tmp/** rw,
+      }
+    dest: /etc/apparmor.d/docker-default
+    mode: '0644'
+  when: install_container_isolation | default(false)
+
+- name: Reload AppArmor
+  command: apparmor_parser -r /etc/apparmor.d/docker-default
+  when: install_container_isolation | default(false)
+
+- name: Tạo container monitoring script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      Container Monitoring Script - Monitor container security
+      """
+      import subprocess
+      import json
+      from datetime import datetime
+
+      def get_container_stats():
+          """Lấy thống kê container"""
+          try:
+              result = subprocess.run(
+                  "docker stats --no-stream --format json",
+                  shell=True,
+                  capture_output=True,
+                  text=True
+              )
+              
+              containers = []
+              for line in result.stdout.strip().split('\n'):
+                  if line:
+                      containers.append(json.loads(line))
+              
+              return containers
+          except Exception as e:
+              print(f"Error: {e}")
+              return []
+
+      def check_container_security():
+          """Kiểm tra security của containers"""
+          containers = get_container_stats()
+          
+          for container in containers:
+              name = container.get('Name', '').lstrip('/')
+              
+              # Kiểm tra resource usage
+              cpu_percent = float(container.get('CPUPerc', '0%').replace('%', ''))
+              mem_percent = float(container.get('MemPerc', '0%').replace('%', ''))
+              
+              if cpu_percent > 90:
+                  print(f"⚠️ {name}: High CPU usage: {cpu_percent}%")
+              
+              if mem_percent > 90:
+                  print(f"⚠️ {name}: High memory usage: {mem_percent}%")
+              
+              # Kiểm tra container status
+              inspect_result = subprocess.run(
+                  f"docker inspect {name}",
+                  shell=True,
+                  capture_output=True,
+                  text=True
+              )
+              
+              if inspect_result.returncode == 0:
+                  inspect_data = json.loads(inspect_result.stdout)[0]
+                  
+                  # Kiểm tra privileged mode
+                  if inspect_data['HostConfig']['Privileged']:
+                      print(f"❌ {name}: Running in privileged mode - SECURITY RISK!")
+                  
+                  # Kiểm tra capabilities
+                  caps = inspect_data['HostConfig'].get('CapAdd', [])
+                  if caps:
+                      print(f"⚠️ {name}: Has capabilities: {caps}")
+                  
+                  # Kiểm tra read-only root
+                  if not inspect_data['HostConfig'].get('ReadOnlyRootfs', False):
+                      print(f"⚠️ {name}: Root filesystem is not read-only")
+                  
+                  # Kiểm tra user
+                  user = inspect_data['Config'].get('User', 'root')
+                  if user == 'root':
+                      print(f"⚠️ {name}: Running as root - SECURITY RISK!")
+
+      def main():
+          print("🐳 Container Security Monitor")
+          print("=" * 50)
+          
+          check_container_security()
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/container-isolation/monitor.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_container_isolation | default(false)
+
+- name: Tạo systemd service cho Container Monitor
+  copy:
+    content: |
+      [Unit]
+      Description=Container Security Monitor
+      After=docker.service
+
+      [Service]
+      Type=simple
+      User={{ app_user | default('admin') }}
+      ExecStart=/usr/bin/python3 /opt/container-isolation/monitor.py
+      Restart=on-failure
+      RestartSec=60
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/container-monitor.service
+    mode: '0644'
+  when: install_container_isolation | default(false)
+
+- name: Enable Container Monitor service
+  systemd:
+    name: container-monitor
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_container_isolation | default(false) and container_monitor_enabled | default(true)

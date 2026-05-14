@@ -1,0 +1,608 @@
+---
+# AI Security Response Role - AI tự động phát hiện và phản hồi tấn công mạng
+
+- name: Cài đặt Python dependencies cho AI Security Response
+  pip:
+    name:
+      - langchain
+      - langchain-community
+      - langchain-ollama
+      - psutil
+      - python-dotenv
+      - requests
+      - paramiko
+    state: present
+    executable: pip3
+  when: install_ai_security_response | default(false)
+
+- name: Cài đặt công cụ security
+  apt:
+    name:
+      - fail2ban
+      - ufw
+      - iptables-persistent
+      - rkhunter
+      - chkrootkit
+      - aide
+    state: present
+    update_cache: yes
+  when: install_ai_security_response | default(false)
+
+- name: Tạo directory cho AI Security Response
+  file:
+    path: /opt/ai-security-response
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo logs directory
+  file:
+    path: /opt/ai-security-response/logs
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo alerts directory
+  file:
+    path: /opt/ai-security-response/alerts
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Tạo incidents directory
+  file:
+    path: /opt/ai-security-response/incidents
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Copy AI Security Response script
+  copy:
+    content: |
+      #!/usr/bin/env python3
+      """
+      AI Security Response - AI tự động phát hiện và phản hồi tấn công mạng
+      """
+      import os
+      import subprocess
+      import json
+      import time
+      import re
+      from datetime import datetime
+      from langchain_ollama import OllamaLLM
+      from langchain.schema import HumanMessage, SystemMessage
+      import psutil
+
+      # Configuration
+      OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
+      OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
+      CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "30"))  # 30 seconds
+      AUTO_RESPONSE_ENABLED = os.getenv("AUTO_RESPONSE_ENABLED", "true") == "true"
+
+      class AISecurityResponse:
+          def __init__(self):
+              self.llm = OllamaLLM(
+                  model=OLLAMA_MODEL,
+                  base_url=f"http://{OLLAMA_HOST}"
+              )
+              self.response_actions = {
+                  'block_ip': self.block_ip,
+                  'block_port': self.block_port,
+                  'restart_firewall': self.restart_firewall,
+                  'enable_fail2ban': self.enable_fail2ban,
+                  'ban_ip_fail2ban': self.ban_ip_fail2ban,
+                  'kill_suspicious_process': self.kill_suspicious_process,
+                  'isolate_server': self.isolate_server,
+                  'notify_admin': self.notify_admin,
+                  'create_incident_report': self.create_incident_report
+              }
+              self.threat_level = "low"  # low, medium, high, critical
+              self.active_incidents = []
+
+          def get_system_status(self):
+              """Lấy trạng thái hệ thống"""
+              return {
+                  "cpu_percent": psutil.cpu_percent(interval=1),
+                  "memory_percent": psutil.virtual_memory().percent,
+                  "disk_percent": psutil.disk_usage('/').percent,
+                  "network_connections": len(psutil.net_connections()),
+                  "processes": len(psutil.pids())
+              }
+
+          def detect_suspicious_activity(self):
+              """Phát hiện hoạt động đáng ngờ"""
+              alerts = []
+              
+              # 1. Kiểm tra số lượng kết nối bất thường
+              connections = psutil.net_connections()
+              if len(connections) > 1000:
+                  alerts.append({
+                      "type": "high_connections",
+                      "severity": "medium",
+                      "message": f"Số lượng kết nối cao bất thường: {len(connections)}",
+                      "value": len(connections)
+                  })
+              
+              # 2. Kiểm tra CPU/Memory cao bất thường
+              cpu = psutil.cpu_percent(interval=1)
+              memory = psutil.virtual_memory().percent
+              if cpu > 90:
+                  alerts.append({
+                      "type": "high_cpu",
+                      "severity": "high",
+                      "message": f"CPU usage cao bất thường: {cpu}%",
+                      "value": cpu
+                  })
+              if memory > 90:
+                  alerts.append({
+                      "type": "high_memory",
+                      "severity": "high",
+                      "message": f"Memory usage cao bất thường: {memory}%",
+                      "value": memory
+                  })
+              
+              # 3. Kiểm tra failed login attempts
+              failed_logins = self.check_failed_logins()
+              if failed_logins > 50:
+                  alerts.append({
+                      "type": "brute_force",
+                      "severity": "critical",
+                      "message": f"Phát hiện brute force attack: {failed_logins} failed logins",
+                      "value": failed_logins
+                  })
+              
+              # 4. Kiểm tra suspicious processes
+              suspicious_procs = self.check_suspicious_processes()
+              if suspicious_procs:
+                  alerts.append({
+                      "type": "suspicious_process",
+                      "severity": "high",
+                      "message": f"Phát hiện process đáng ngờ: {suspicious_procs}",
+                      "value": suspicious_procs
+                  })
+              
+              # 5. Kiểm tra port scanning
+              port_scan = self.check_port_scanning()
+              if port_scan:
+                  alerts.append({
+                      "type": "port_scan",
+                      "severity": "high",
+                      "message": f"Phát hiện port scanning: {port_scan}",
+                      "value": port_scan
+                  })
+              
+              # 6. Kiểm tra DDoS indicators
+              ddos_indicators = self.check_ddos_indicators()
+              if ddos_indicators:
+                  alerts.append({
+                      "type": "ddos",
+                      "severity": "critical",
+                      "message": f"Phát hiện DDoS indicators: {ddos_indicators}",
+                      "value": ddos_indicators
+                  })
+              
+              # 7. Kiểm tra unauthorized access
+              unauthorized = self.check_unauthorized_access()
+              if unauthorized:
+                  alerts.append({
+                      "type": "unauthorized_access",
+                      "severity": "critical",
+                      "message": f"Phát hiện unauthorized access: {unauthorized}",
+                      "value": unauthorized
+                  })
+              
+              return alerts
+
+          def check_failed_logins(self):
+              """Kiểm tra failed login attempts"""
+              try:
+                  result = subprocess.run(
+                      "journalctl -u ssh -p err -n 1000 --no-pager | grep -i 'failed password'",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  return len(result.stdout.split('\n')) if result.stdout else 0
+              except:
+                  return 0
+
+          def check_suspicious_processes(self):
+              """Kiểm tra processes đáng ngờ"""
+              suspicious = []
+              suspicious_names = ['miner', 'crypto', 'bitcoin', 'malware', 'backdoor', 'rootkit']
+              
+              for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                  try:
+                      proc_name = proc.info['name'].lower() if proc.info['name'] else ""
+                      cmdline = ' '.join(proc.info['cmdline']).lower() if proc.info['cmdline'] else ""
+                      
+                      for susp in suspicious_names:
+                          if susp in proc_name or susp in cmdline:
+                              suspicious.append({
+                                  "pid": proc.info['pid'],
+                                  "name": proc.info['name'],
+                                  "cmdline": ' '.join(proc.info['cmdline'])
+                              })
+                  except:
+                      pass
+              
+              return suspicious
+
+          def check_port_scanning(self):
+              """Kiểm tra port scanning"""
+              try:
+                  result = subprocess.run(
+                      "journalctl -k -n 1000 --no-pager | grep -i 'port scan'",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  if result.stdout:
+                      return result.stdout[:200]
+                  return None
+              except:
+                  return None
+
+          def check_ddos_indicators(self):
+              """Kiểm tra DDoS indicators"""
+              indicators = []
+              
+              # Kiểm tra số lượng connections từ cùng một IP
+              try:
+                  result = subprocess.run(
+                      "netstat -an | grep ESTABLISHED | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -5",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  lines = result.stdout.strip().split('\n')
+                  for line in lines:
+                      parts = line.split()
+                      if len(parts) >= 2 and int(parts[0]) > 100:
+                          indicators.append(f"IP {parts[1]}: {parts[0]} connections")
+              except:
+                  pass
+              
+              return indicators if indicators else None
+
+          def check_unauthorized_access(self):
+              """Kiểm tra unauthorized access"""
+              try:
+                  result = subprocess.run(
+                      "journalctl -p err -n 100 --no-pager | grep -i 'unauthorized\\|permission denied\\|access denied'",
+                      shell=True,
+                      capture_output=True,
+                      text=True
+                  )
+                  if result.stdout:
+                      return result.stdout[:300]
+                  return None
+              except:
+                  return None
+
+          def analyze_threat_with_ai(self, alerts, system_status):
+              """Phân tích mối đe dọa với AI"""
+              system_prompt = """Bạn là một AI Security Expert chuyên về Incident Response.
+              Nhiệm vụ của bạn:
+              - Phân tích các security alerts
+              - Xác định loại tấn công và mức độ nghiêm trọng
+              - Đề xuất các hành động phản hồi phù hợp
+              - Ưu tiên bảo vệ hệ thống và dữ liệu
+              
+              Hãy trả về JSON format với:
+              {
+                "threat_type": "brute_force/ddos/malware/unauthorized_access/other",
+                "severity": "low/medium/high/critical",
+                "recommended_actions": ["action1", "action2", ...],
+                "reasoning": "lý do cho các hành động đề xuất"
+              }
+              
+              Các hành động có thể:
+              - block_ip: Chặn IP tấn công
+              - block_port: Chặn port bị tấn công
+              - restart_firewall: Restart firewall
+              - enable_fail2ban: Bật fail2ban
+              - ban_ip_fail2ban: Ban IP với fail2ban
+              - kill_suspicious_process: Kill process đáng ngờ
+              - isolate_server: Cô lập server (cực đoan)
+              - notify_admin: Thông báo admin
+              - create_incident_report: Tạo báo cáo incident"""
+              
+              context = f"""
+              System Status:
+              CPU: {system_status['cpu_percent']}%
+              Memory: {system_status['memory_percent']}%
+              Disk: {system_status['disk_percent']}%
+              Connections: {system_status['network_connections']}
+              
+              Security Alerts:
+              {json.dumps(alerts, indent=2)}
+              """
+              
+              messages = [
+                  SystemMessage(content=system_prompt),
+                  HumanMessage(content="Phân tích các alerts và đề xuất hành động phản hồi.")
+              ]
+              
+              response = self.llm.invoke(messages)
+              return response
+
+          def block_ip(self, ip):
+              """Chặn IP với iptables"""
+              try:
+                  subprocess.run(f"iptables -A INPUT -s {ip} -j DROP", shell=True, check=True)
+                  subprocess.run(f"iptables-save > /etc/iptables/rules.v4", shell=True)
+                  return {"action": "block_ip", "success": True, "ip": ip}
+              except Exception as e:
+                  return {"action": "block_ip", "success": False, "error": str(e)}
+
+          def block_port(self, port):
+              """Chặn port với iptables"""
+              try:
+                  subprocess.run(f"iptables -A INPUT -p tcp --dport {port} -j DROP", shell=True, check=True)
+                  subprocess.run(f"iptables-save > /etc/iptables/rules.v4", shell=True)
+                  return {"action": "block_port", "success": True, "port": port}
+              except Exception as e:
+                  return {"action": "block_port", "success": False, "error": str(e)}
+
+          def restart_firewall(self):
+              """Restart firewall"""
+              try:
+                  subprocess.run("ufw reload", shell=True, check=True)
+                  return {"action": "restart_firewall", "success": True}
+              except Exception as e:
+                  return {"action": "restart_firewall", "success": False, "error": str(e)}
+
+          def enable_fail2ban(self):
+              """Bật fail2ban"""
+              try:
+                  subprocess.run("systemctl enable fail2ban", shell=True, check=True)
+                  subprocess.run("systemctl start fail2ban", shell=True, check=True)
+                  return {"action": "enable_fail2ban", "success": True}
+              except Exception as e:
+                  return {"action": "enable_fail2ban", "success": False, "error": str(e)}
+
+          def ban_ip_fail2ban(self, ip):
+              """Ban IP với fail2ban"""
+              try:
+                  subprocess.run(f"fail2ban-client set sshd banip {ip}", shell=True, check=True)
+                  return {"action": "ban_ip_fail2ban", "success": True, "ip": ip}
+              except Exception as e:
+                  return {"action": "ban_ip_fail2ban", "success": False, "error": str(e)}
+
+          def kill_suspicious_process(self, pid):
+              """Kill process đáng ngờ"""
+              try:
+                  subprocess.run(f"kill -9 {pid}", shell=True, check=True)
+                  return {"action": "kill_suspicious_process", "success": True, "pid": pid}
+              except Exception as e:
+                  return {"action": "kill_suspicious_process", "success": False, "error": str(e)}
+
+          def isolate_server(self):
+              """Cô lập server - hành động cực đoan"""
+              try:
+                  # Chặn tất cả incoming traffic trừ SSH từ admin IP
+                  subprocess.run("ufw default deny incoming", shell=True, check=True)
+                  subprocess.run("ufw default allow outgoing", shell=True, check=True)
+                  subprocess.run("ufw allow from {{ admin_ip }} to any port 22", shell=True)
+                  subprocess.run("ufw reload", shell=True, check=True)
+                  return {"action": "isolate_server", "success": True}
+              except Exception as e:
+                  return {"action": "isolate_server", "success": False, "error": str(e)}
+
+          def notify_admin(self, message):
+              """Thông báo admin"""
+              alert_file = f"/opt/ai-security-response/alerts/alert_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+              with open(alert_file, 'w') as f:
+                  json.dump({
+                      "timestamp": datetime.now().isoformat(),
+                      "message": message,
+                      "severity": self.threat_level
+                  }, f, indent=2)
+              return {"action": "notify_admin", "success": True, "alert_file": alert_file}
+
+          def create_incident_report(self, alerts, ai_analysis):
+              """Tạo báo cáo incident"""
+              incident_file = f"/opt/ai-security-response/incidents/incident_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+              with open(incident_file, 'w') as f:
+                  json.dump({
+                      "timestamp": datetime.now().isoformat(),
+                      "threat_level": self.threat_level,
+                      "alerts": alerts,
+                      "ai_analysis": ai_analysis,
+                      "status": "open"
+                  }, f, indent=2)
+              return {"action": "create_incident_report", "success": True, "incident_file": incident_file}
+
+          def execute_response(self, action, params=None):
+              """Thực hiện hành động phản hồi"""
+              if action in self.response_actions:
+                  if params:
+                      return self.response_actions[action](params)
+                  else:
+                      return self.response_actions[action]()
+              else:
+                  return {"action": action, "success": False, "error": "Unknown action"}
+
+          def log_security_event(self, event_type, details):
+              """Ghi log security event"""
+              log_file = f"/opt/ai-security-response/logs/security_{datetime.now().strftime('%Y%m%d')}.log"
+              with open(log_file, 'a') as f:
+                  f.write(f"{datetime.now().isoformat()} | {event_type} | {details}\n")
+
+          def run(self):
+              """Chạy security response loop"""
+              print("🛡️ AI Security Response started...")
+              self.log_security_event("SYSTEM", "AI Security Response started")
+              
+              while True:
+                  try:
+                      # Lấy system status
+                      status = self.get_system_status()
+                      
+                      # Phát hiện suspicious activity
+                      alerts = self.detect_suspicious_activity()
+                      
+                      if alerts:
+                          print(f"\n🚨 [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Detected {len(alerts)} security alert(s)")
+                          
+                          # Phân tích với AI
+                          ai_analysis = self.analyze_threat_with_ai(alerts, status)
+                          print(f"🤖 AI Analysis: {ai_analysis[:300]}...")
+                          
+                          # Lưu incident report
+                          self.create_incident_report(alerts, ai_analysis)
+                          
+                          # Thực hiện response (nếu auto-response enabled)
+                          if AUTO_RESPONSE_ENABLED:
+                              try:
+                                  # Parse AI response để lấy recommended actions
+                                  # Đây là simplified version
+                                  if "critical" in ai_analysis.lower():
+                                      self.threat_level = "critical"
+                                      # Thực hiện các hành động khẩn cấp
+                                      self.notify_admin(f"CRITICAL THREAT DETECTED: {ai_analysis}")
+                                      
+                                      # Nếu brute force
+                                      if "brute_force" in ai_analysis.lower():
+                                          self.enable_fail2ban()
+                                          
+                                      # Nếu DDoS
+                                      if "ddos" in ai_analysis.lower():
+                                          self.restart_firewall()
+                                          
+                                  elif "high" in ai_analysis.lower():
+                                      self.threat_level = "high"
+                                      self.notify_admin(f"HIGH SEVERITY THREAT: {ai_analysis}")
+                                      
+                                  else:
+                                      self.threat_level = "medium"
+                                      self.notify_admin(f"THREAT DETECTED: {ai_analysis}")
+                                  
+                                  self.log_security_event("RESPONSE", f"Threat level: {self.threat_level}, Actions taken")
+                                  
+                              except Exception as e:
+                                  print(f"❌ Error executing response: {e}")
+                                  self.log_security_event("ERROR", f"Response error: {e}")
+                      
+                      # Sleep
+                      time.sleep(CHECK_INTERVAL)
+                      
+                  except KeyboardInterrupt:
+                      print("\n👋 AI Security Response stopped.")
+                      self.log_security_event("SYSTEM", "AI Security Response stopped")
+                      break
+                  except Exception as e:
+                      print(f"❌ Error: {e}")
+                      self.log_security_event("ERROR", str(e))
+                      time.sleep(60)
+
+      def main():
+          responder = AISecurityResponse()
+          responder.run()
+
+      if __name__ == "__main__":
+          main()
+    dest: /opt/ai-security-response/responder.py
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_ai_security_response | default(false)
+
+- name: Cấu hình Fail2ban
+  copy:
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+      destemail = admin@example.com
+      sendername = Fail2Ban
+      
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+      
+      [nginx-http-auth]
+      enabled = true
+      port = http,https
+      logpath = /var/log/nginx/error.log
+    dest: /etc/fail2ban/jail.local
+    mode: '0644'
+  when: install_ai_security_response | default(false)
+
+- name: Cấu hình UFW Firewall
+  copy:
+    content: |
+      # Default policies
+      default deny incoming
+      default allow outgoing
+      
+      # Allow SSH
+      allow 22/tcp
+      
+      # Allow HTTP/HTTPS
+      allow 80/tcp
+      allow 443/tcp
+      
+      # Allow app port
+      allow {{ app_port | default(3000) }}/tcp
+    dest: /etc/ufw/ai-security-rules
+    mode: '0644'
+  when: install_ai_security_response | default(false)
+
+- name: Apply UFW rules
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "22"
+    - "80"
+    - "443"
+    - "{{ app_port | default(3000) }}"
+  when: install_ai_security_response | default(false)
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  when: install_ai_security_response | default(false)
+
+- name: Tạo systemd service cho AI Security Response
+  copy:
+    content: |
+      [Unit]
+      Description=AI Security Response - Auto detect and respond to cyber attacks
+      After=network.target ollama.service
+
+      [Service]
+      Type=simple
+      User={{ app_user | default('admin') }}
+      Environment=OLLAMA_HOST=localhost:11434
+      Environment=OLLAMA_MODEL={{ ai_security_response_model | default('llama2') }}
+      Environment=CHECK_INTERVAL={{ ai_security_response_interval | default(30) }}
+      Environment=AUTO_RESPONSE_ENABLED={{ ai_security_response_auto_enabled | default('true') }}
+      ExecStart=/usr/bin/python3 /opt/ai-security-response/responder.py
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/ai-security-response.service
+    mode: '0644'
+  when: install_ai_security_response | default(false)
+
+- name: Enable AI Security Response service
+  systemd:
+    name: ai-security-response
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ai_security_response | default(false) and ai_security_response_enabled | default(true)
