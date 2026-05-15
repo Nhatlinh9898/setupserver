@@ -1,0 +1,181 @@
+---
+# Ray Cluster Role - Distributed Computing cho GPU/ML workloads
+
+- name: Cài đặt Python dependencies
+  apt:
+    name:
+      - python3-pip
+      - python3-venv
+      - python3-dev
+      - build-essential
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Cài đặt Python dependencies (CentOS)
+  yum:
+    name:
+      - python3-pip
+      - python3-devel
+      - gcc
+      - gcc-c++
+      - make
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Cài đặt Ray
+  pip:
+    name:
+      - "ray[default]"
+      - "ray[serve]"
+      - "ray[rllib]"
+      - "ray[tune]"
+    state: present
+    executable: pip3
+  ignore_errors: yes
+
+- name: Tạo Ray user
+  user:
+    name: ray
+    system: yes
+    shell: /bin/bash
+    home: /opt/ray
+    create_home: yes
+
+- name: Tạo Ray directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: ray
+    group: ray
+  loop:
+    - /opt/ray
+    - /opt/ray/logs
+    - /opt/ray/storage
+    - /opt/ray/dashboard
+
+- name: Cấu hình Ray Head Node
+  block:
+    - name: Tạo Ray Head service
+      template:
+        src: ray-head.service.j2
+        dest: /etc/systemd/system/ray-head.service
+        mode: '0644'
+      notify: restart ray-head
+
+    - name: Enable Ray Head service
+      systemd:
+        name: ray-head
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Mở port Ray Head trên firewall (Ubuntu)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "6379"  # Ray default port
+        - "8265"  # Ray Dashboard
+      when: ansible_os_family == "Debian"
+
+    - name: Mở port Ray Head trên firewall (CentOS)
+      firewalld:
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+      loop:
+        - "6379"
+        - "8265"
+      when: ansible_os_family == "RedHat"
+      notify: reload firewalld
+
+  when: ray_node_type == "head" or ray_node_type is not defined
+
+- name: Cấu hình Ray Worker Node
+  block:
+    - name: Tạo Ray Worker service
+      template:
+        src: ray-worker.service.j2
+        dest: /etc/systemd/system/ray-worker.service
+        mode: '0644'
+      notify: restart ray-worker
+
+    - name: Enable Ray Worker service
+      systemd:
+        name: ray-worker
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Mở port Ray Worker trên firewall (Ubuntu)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "6379"
+      when: ansible_os_family == "Debian"
+
+    - name: Mở port Ray Worker trên firewall (CentOS)
+      firewalld:
+        port: "6379/tcp"
+        permanent: yes
+        state: enabled
+      when: ansible_os_family == "RedHat"
+      notify: reload firewalld
+
+  when: ray_node_type == "worker"
+
+- name: Cấu hình Ray với GPU resources
+  block:
+    - name: Kiểm tra GPU NVIDIA
+      command: nvidia-smi --query-gpu=count --format=csv,noheader
+      register: gpu_count
+      failed_when: false
+      changed_when: false
+
+    - name: Tạo Ray config với GPU
+      template:
+        src: ray-config.yaml.j2
+        dest: /opt/ray/ray-config.yaml
+        mode: '0644'
+        owner: ray
+        group: ray
+      when: gpu_count.rc == 0
+
+    - name: Cập nhật Ray service với GPU config
+      lineinfile:
+        path: "{{ '/etc/systemd/system/ray-head.service' if ray_node_type == 'head' or ray_node_type is not defined else '/etc/systemd/system/ray-worker.service' }}"
+        regexp: '^ExecStart='
+        line: 'ExecStart=/usr/local/bin/ray start --config-file=/opt/ray/ray-config.yaml --head-port={{ ray_head_port | default(6379) }} {% if ray_node_type == "worker" %}--address={{ ray_head_address }}:{{ ray_head_port | default(6379) }}{% endif %}'
+      when: gpu_count.rc == 0
+      notify: restart ray services
+
+  when: install_cuda | default(false)
+
+handlers:
+  - name: restart ray-head
+    systemd:
+      name: ray-head
+      state: restarted
+      daemon_reload: yes
+
+  - name: restart ray-worker
+    systemd:
+      name: ray-worker
+      state: restarted
+      daemon_reload: yes
+
+  - name: restart ray services
+    systemd:
+      name: "{{ 'ray-head' if ray_node_type == 'head' or ray_node_type is not defined else 'ray-worker' }}"
+      state: restarted
+      daemon_reload: yes
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

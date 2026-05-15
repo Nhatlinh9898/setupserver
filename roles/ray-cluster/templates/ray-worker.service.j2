@@ -1,0 +1,24 @@
+[Unit]
+Description=Ray Worker Node
+After=network.target
+
+[Service]
+Type=simple
+User=ray
+Group=ray
+WorkingDirectory=/opt/ray
+ExecStart=/usr/local/bin/ray start --address={{ ray_head_address }}:{{ ray_head_port | default(6379) }} --resources='{"CPU": {{ ray_cpu_resources | default(ansible_processor_vcpus) }}, "memory": {{ ray_memory_resources | default(ansible_memtotal_mb // 1024) }} }'
+Restart=always
+RestartSec=10
+
+# Environment
+Environment="RAY_HOME=/opt/ray"
+Environment="RAY_LOG_DIR=/opt/ray/logs"
+Environment="RAY_STORAGE=/opt/ray/storage"
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

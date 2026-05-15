@@ -1,0 +1,22 @@
+module.exports = {
+  apps: [{
+    name: '{{ commercial_app_name | default("commercial-app") }}',
+    script: './dist/server.js',
+    instances: {{ node_instances | default(1) }},
+    exec_mode: '{{ node_exec_mode | default("fork") }}',
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '{{ node_max_memory | default("1G") }}',
+    env: {
+      NODE_ENV: '{{ node_env | default("production") }}',
+      PORT: {{ commercial_app_port | default(3000) }}
+    },
+    env_production: {
+      NODE_ENV: 'production'
+    },
+    error_file: '/var/log/pm2/{{ commercial_app_name | default("commercial-app") }}-error.log',
+    out_file: '/var/log/pm2/{{ commercial_app_name | default("commercial-app") }}-out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true
+  }]
+};

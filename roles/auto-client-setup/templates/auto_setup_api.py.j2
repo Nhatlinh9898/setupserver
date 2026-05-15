@@ -1,0 +1,127 @@
+"""
+Auto Setup API - Zero-setup cho user - Chỉ cần truy cập web và sử dụng
+"""
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+import json
+import os
+import uuid
+import logging
+from datetime import datetime
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/opt/auto-client-setup/logs/auto_setup.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Auto Client Setup API")
+
+# Data models
+class UserRegistration(BaseModel):
+    user_id: str
+    email: str
+    device_name: str = "Unknown"
+    os_type: str = "web"  # web, ios, android
+
+# Storage for user sessions
+USER_SESSIONS = {}
+
+# App URL từ environment variable
+APP_URL = os.getenv("APP_URL", "http://localhost:3000")
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Auto Client Setup API",
+        "status": "running",
+        "app_url": APP_URL
+    }
+
+@app.post("/register")
+async def register_user(user: UserRegistration):
+    """
+    Đăng ký user mới và trả về app URL
+    """
+    try:
+        logger.info(f"Registering user: {user.email}, device: {user.device_name}")
+
+        # Generate unique session ID
+        session_id = f"session_{user.user_id}_{uuid.uuid4().hex[:8]}"
+
+        # Save session
+        session = {
+            "session_id": session_id,
+            "user_id": user.user_id,
+            "email": user.email,
+            "device_name": user.device_name,
+            "os_type": user.os_type,
+            "app_url": APP_URL,
+            "created_at": datetime.now().isoformat()
+        }
+
+        USER_SESSIONS[session_id] = session
+
+        # Save to file
+        os.makedirs("/opt/auto-client-setup/configs", exist_ok=True)
+        with open(f"/opt/auto-client-setup/configs/{session_id}.json", 'w') as f:
+            json.dump(session, f, indent=2)
+
+        logger.info(f"Session created for user: {user.email}, session_id: {session_id}")
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "app_url": APP_URL,
+            "web_setup_url": f"/web-setup/{session_id}"
+        }
+
+    except Exception as e:
+        logger.error(f"Registration error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/web-setup/{session_id}")
+async def web_setup_page(session_id: str):
+    """
+    Trả về web setup page với link đến app
+    """
+    if session_id not in USER_SESSIONS:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = USER_SESSIONS[session_id]
+
+    with open("/opt/auto-client-setup/web_setup.html", 'r') as f:
+        html_content = f.read()
+
+    # Replace placeholder với app URL
+    html_content = html_content.replace("{{APP_URL}}", session["app_url"])
+
+    return HTMLResponse(content=html_content)
+
+@app.get("/app-info")
+async def get_app_info():
+    """
+    Thông tin về app
+    """
+    return {
+        "app_url": APP_URL,
+        "features": [
+            "P2P Networking (GunDB)",
+            "Real-time Notifications (Socket.io)",
+            "Database & Storage",
+            "AI/ML Capabilities",
+            "Security & Encryption"
+        ],
+        "status": "ready"
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port={{ auto_setup_api_port | default(9000) }})

@@ -1,0 +1,275 @@
+---
+# Auto Client Setup Role - Zero-setup cho user - Chỉ cần truy cập web và sử dụng
+
+- name: Tạo auto-setup directory
+  file:
+    path: /opt/auto-client-setup
+    state: directory
+    mode: '0755'
+
+- name: Tạo configs directory
+  file:
+    path: /opt/auto-client-setup/configs
+    state: directory
+    mode: '0755'
+
+- name: Tạo logs directory
+  file:
+    path: /opt/auto-client-setup/logs
+    state: directory
+    mode: '0755'
+
+- name: Copy web-based setup page
+  template:
+    src: web_setup.html.j2
+    dest: /opt/auto-client-setup/web_setup.html
+    mode: '0644'
+
+- name: Tạo API endpoint cho auto-setup
+  template:
+    src: auto_setup_api.py.j2
+    dest: /opt/auto-client-setup/auto_setup_api.py
+    mode: '0755'
+
+- name: Cài đặt dependencies cho auto-setup API
+  pip:
+    name:
+      - fastapi
+      - uvicorn
+      - pydantic
+    state: present
+    executable: pip3
+
+- name: Tạo systemd service cho auto-setup API
+  template:
+    src: auto-setup-api.service.j2
+    dest: /etc/systemd/system/auto-setup-api.service
+    mode: '0644'
+  notify: restart auto-setup-api
+
+- name: Enable auto-setup API service
+  systemd:
+    name: auto-setup-api
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  environment:
+    APP_URL: "{{ vite_app_url | default('http://localhost:3000') }}"
+
+- name: Mở port auto-setup API trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ auto_setup_api_port | default(9000) }}"
+    proto: tcp
+  when: ansible_os_family == "Debian"
+
+- name: Mở port auto-setup API trên firewall (CentOS)
+  firewalld:
+    port: "{{ auto_setup_api_port | default(9000) }}/tcp"
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+# Deploy Commercial App trên server
+- name: Tạo directory cho app thương mại
+  file:
+    path: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_commercial_app | default(false)
+
+- name: Copy commercial app code (nếu deploy_method = local)
+  synchronize:
+    src: "{{ local_app_code_path }}"
+    dest: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+    delete: yes
+  when:
+    - install_commercial_app | default(false)
+    - deploy_method == "local"
+
+- name: Clone commercial app từ Git (nếu deploy_method = git)
+  git:
+    repo: "{{ git_repository }}"
+    dest: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+    version: "{{ git_branch | default('main') }}"
+    force: yes
+  when:
+    - install_commercial_app | default(false)
+    - deploy_method == "git"
+
+- name: Cài đặt Node.js dependencies cho commercial app
+  npm:
+    path: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+    state: present
+  become_user: "{{ app_user | default('admin') }}"
+  when: install_commercial_app | default(false)
+
+- name: Build commercial app với Vite
+  command: npm run build
+  args:
+    chdir: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+  become_user: "{{ app_user | default('admin') }}"
+  when:
+    - install_commercial_app | default(false)
+    - npm_build | default(true)
+
+- name: Tạo .env file cho commercial app
+  template:
+    src: commercial-app.env.j2
+    dest: "{{ commercial_app_path | default('/opt/commercial-app') }}/.env"
+    mode: '0600'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: install_commercial_app | default(false)
+
+- name: Tạo PM2 ecosystem config cho commercial app
+  template:
+    src: commercial-app-ecosystem.config.js.j2
+    dest: "{{ commercial_app_path | default('/opt/commercial-app') }}/ecosystem.config.js"
+    mode: '0644'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when:
+    - install_commercial_app | default(false)
+    - use_pm2 | default(true)
+
+- name: Start commercial app với PM2
+  command: pm2 start ecosystem.config.js
+  args:
+    chdir: "{{ commercial_app_path | default('/opt/commercial-app') }}"
+  become_user: "{{ app_user | default('admin') }}"
+  environment:
+    NODE_ENV: "{{ node_env | default('production') }}"
+  when:
+    - install_commercial_app | default(false)
+    - use_pm2 | default(true)
+
+- name: Save PM2 process list cho commercial app
+  command: pm2 save
+  become_user: "{{ app_user | default('admin') }}"
+  when:
+    - install_commercial_app | default(false)
+    - use_pm2 | default(true)
+
+- name: Setup PM2 startup script cho commercial app
+  command: pm2 startup systemd -u {{ app_user | default('admin') }} --hp /home/{{ app_user | default('admin') }}
+  become_user: "{{ app_user | default('admin') }}"
+  when:
+    - install_commercial_app | default(false)
+    - use_pm2 | default(true)
+  register: pm2_startup
+  failed_when: false
+
+- name: Enable PM2 startup cho commercial app
+  shell: pm2 startup systemd -u {{ app_user | default('admin') }} --hp /home/{{ app_user | default('admin') }} && env PATH=$PATH:/usr/bin pm2 startup systemd -u {{ app_user | default('admin') }} --hp /home/{{ app_user | default('admin') }} --skip-env
+  become: yes
+  when:
+    - install_commercial_app | default(false)
+    - use_pm2 | default(true)
+  failed_when: false
+
+- name: Cấu hình Nginx cho commercial app
+  template:
+    src: commercial-app-nginx.conf.j2
+    dest: /etc/nginx/sites-available/{{ commercial_app_name | default('commercial-app') }}
+    mode: '0644'
+  when:
+    - install_commercial_app | default(false)
+    - install_nginx | default(true)
+  notify: restart nginx
+
+- name: Enable commercial app site trong Nginx
+  file:
+    src: /etc/nginx/sites-available/{{ commercial_app_name | default('commercial-app') }}
+    dest: /etc/nginx/sites-enabled/{{ commercial_app_name | default('commercial-app') }}
+    state: link
+  when:
+    - install_commercial_app | default(false)
+    - install_nginx | default(true)
+  notify: restart nginx
+
+- name: Mở port commercial app trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ commercial_app_port | default(3000) }}"
+    proto: tcp
+  when:
+    - install_commercial_app | default(false)
+    - ansible_os_family == "Debian"
+
+- name: Mở port commercial app trên firewall (CentOS)
+  firewalld:
+    port: "{{ commercial_app_port | default(3000) }}/tcp"
+    permanent: yes
+    state: enabled
+  when:
+    - install_commercial_app | default(false)
+    - ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+- name: Tạo systemd service cho P2P Relay (GunDB)
+  template:
+    src: p2p-relay.service.j2
+    dest: /etc/systemd/system/p2p-relay.service
+    mode: '0644'
+  when:
+    - install_commercial_app | default(false)
+    - p2p_relay_enabled | default(true)
+  notify: restart p2p-relay
+
+- name: Enable và start P2P Relay service
+  systemd:
+    name: p2p-relay
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when:
+    - install_commercial_app | default(false)
+    - p2p_relay_enabled | default(true)
+
+- name: Mở port P2P Relay trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ p2p_relay_port | default(8765) }}"
+    proto: tcp
+  when:
+    - install_commercial_app | default(false)
+    - p2p_relay_enabled | default(true)
+    - ansible_os_family == "Debian"
+
+- name: Mở port P2P Relay trên firewall (CentOS)
+  firewalld:
+    port: "{{ p2p_relay_port | default(8765) }}/tcp"
+    permanent: yes
+    state: enabled
+  when:
+    - install_commercial_app | default(false)
+    - p2p_relay_enabled | default(true)
+    - ansible_os_family == "RedHat"
+  notify: reload firewalld
+
+handlers:
+  - name: restart auto-setup-api
+    systemd:
+      name: auto-setup-api
+      state: restarted
+      daemon_reload: yes
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded
+
+  - name: restart nginx
+    service:
+      name: nginx
+      state: restarted
+
+  - name: restart p2p-relay
+    systemd:
+      name: p2p-relay
+      state: restarted
+      daemon_reload: yes

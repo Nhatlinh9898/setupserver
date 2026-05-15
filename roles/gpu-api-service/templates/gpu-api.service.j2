@@ -1,0 +1,23 @@
+[Unit]
+Description=GPU API Service
+After=network.target
+
+[Service]
+Type=simple
+User=gpuapi
+Group=gpuapi
+WorkingDirectory=/opt/gpu-api/app
+Environment="PATH=/opt/gpu-api/venv/bin"
+ExecStart=/opt/gpu-api/venv/bin/python gpu_api_main.py
+Restart=always
+RestartSec=10
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+MemoryMax={{ gpu_api_memory_limit | default('8G') }}
+
+[Install]
+WantedBy=multi-user.target

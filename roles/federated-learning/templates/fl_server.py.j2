@@ -1,0 +1,105 @@
+"""
+Federated Learning Server - Aggregates model updates from clients
+"""
+
+import flwr as fl
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import OrderedDict
+import logging
+import json
+import os
+from datetime import datetime
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/opt/federated-learning/logs/fl_server.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Simple neural network model
+class SimpleModel(nn.Module):
+    def __init__(self, input_size=10, hidden_size=50, output_size=10):
+        super(SimpleModel, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size, output_size)
+    
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
+# Custom strategy for federated learning
+class CustomStrategy(fl.server.strategy.FedAvg):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.global_model = SimpleModel()
+        self.round_history = []
+    
+    def aggregate_fit(self, rnd, results, failures):
+        """Aggregate model updates from clients"""
+        logger.info(f"Round {rnd}: Aggregating updates from {len(results)} clients")
+        
+        # Call parent aggregate_fit
+        aggregated_parameters = super().aggregate_fit(rnd, results, failures)
+        
+        if aggregated_parameters is not None:
+            # Save aggregated model
+            aggregated_weights = fl.common.parameters_to_weights(aggregated_parameters[0])
+            self.update_global_model(aggregated_weights)
+            
+            # Save round history
+            round_info = {
+                "round": rnd,
+                "num_clients": len(results),
+                "timestamp": datetime.now().isoformat(),
+                "losses": [r.metrics.get('loss', 0) for _, r in results]
+            }
+            self.round_history.append(round_info)
+            
+            # Save to file
+            with open('/opt/federated-learning/models/round_history.json', 'w') as f:
+                json.dump(self.round_history, f, indent=2)
+            
+            # Save model checkpoint
+            torch.save(self.global_model.state_dict(), 
+                      f'/opt/federated-learning/models/global_model_round_{rnd}.pt')
+            
+            logger.info(f"Round {rnd}: Model saved successfully")
+        
+        return aggregated_parameters
+    
+    def update_global_model(self, weights):
+        """Update global model with aggregated weights"""
+        params_dict = zip(self.global_model.state_dict().keys(), weights)
+        state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+        self.global_model.load_state_dict(state_dict)
+
+# Start server
+def start_server():
+    logger.info("Starting Federated Learning Server...")
+    
+    # Initialize strategy
+    strategy = CustomStrategy(
+        min_fit_clients={{ federated_min_clients | default(2) }},
+        min_available_clients={{ federated_min_available_clients | default(2) }},
+        fraction_fit={{ federated_fraction_fit | default(1.0) }},
+    )
+    
+    # Start Flower server
+    fl.server.start_server(
+        server_address="0.0.0.0:{{ federated_server_port | default(8080) }}",
+        config=fl.server.ServerConfig(num_rounds={{ federated_num_rounds | default(10) }}),
+        strategy=strategy
+    )
+
+if __name__ == "__main__":
+    start_server()

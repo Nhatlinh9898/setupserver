@@ -7,7 +7,7 @@
 deploy_method: "git"  # "git" để clone từ Git, "local" để copy từ local directory
 
 # Thông tin Git Repository (chỉ dùng khi deploy_method = "git")
-git_repository: "https://github.com/yourusername/your-repo.git"  # URL repository của bạn
+git_repository: "https://github.com/Nhatlinh9898/AmazeBid-Hybrid-E-commerce-Auction-Platform-v10.git"  # URL repository của bạn
 git_branch: "main"  # Branch để deploy
 # git_ssh_private_key: "-----BEGIN OPENSSH PRIVATE KEY-----..."  # Private key cho repo private (nếu cần)
 # git_password: "your_password"  # Password cho repo private (không khuyến khích)
@@ -16,9 +16,9 @@ git_branch: "main"  # Branch để deploy
 # local_code_path: "./app-code"  # Đường dẫn đến code trên máy local (tương đối với thư mục playbook)
 
 # Thông tin Project (Monolithic App - UI + Logic cùng một server)
-app_name: "my-app"  # Tên ứng dụng
+app_name: "amazebid"  # Tên ứng dụng
 app_user: "admin"  # User chạy ứng dụng
-project_path: "/opt/apps/my-app"  # Đường dẫn đến project trên server
+project_path: "/opt/apps/amazebid"  # Đường dẫn đến project trên server
 app_port: 3000  # Port ứng dụng
 
 # Cấu hình cho Monolithic App (UI + Logic cùng một place)
@@ -36,10 +36,8 @@ use_firebase: true  # Sử dụng Firebase
 env_vars:
   NODE_ENV: "production"
   PORT: "3000"
-  # Database connection (Prisma)
-  DATABASE_URL: "postgresql://dbuser:password@192.168.1.200:5432/mydb"
-  # Hoặc database local (nếu cùng server)
-  # DATABASE_URL: "postgresql://dbuser:password@localhost:5432/mydb"
+  # Database connection (Prisma - PostgreSQL)
+  DATABASE_URL: "postgresql://amazebid_user:change_this_password@localhost:5432/amazebid?schema=public"
   # Firebase Configuration
   FIREBASE_API_KEY: "your-firebase-api-key"
   FIREBASE_AUTH_DOMAIN: "your-project.firebaseapp.com"
@@ -47,6 +45,34 @@ env_vars:
   FIREBASE_STORAGE_BUCKET: "your-project.appspot.com"
   FIREBASE_MESSAGING_SENDER_ID: "your-sender-id"
   FIREBASE_APP_ID: "your-app-id"
+  # Firebase Admin (Server-side)
+  FIREBASE_SERVICE_ACCOUNT_JSON: "your-firebase-service-account-json"
+  # Redis Configuration
+  REDIS_URL: "redis://localhost:6379"
+  # Stripe Configuration
+  STRIPE_SECRET_KEY: "your-stripe-secret-key"
+  STRIPE_PUBLISHABLE_KEY: "your-stripe-publishable-key"
+  # JWT Secret
+  JWT_SECRET: "change-this-jwt-secret-in-production"
+  # Gemini AI Configuration
+  GEMINI_API_KEY: "your-gemini-api-key"
+  # AI Model Configuration
+  VITE_AI_MODEL_FLASH: "gemini-3-flash-preview"
+  VITE_AI_MODEL_PRO: "gemini-3.1-pro-preview"
+  VITE_AI_MODEL_LITE: "gemini-3.1-flash-lite-preview"
+  VITE_AI_MODEL_IMAGE: "gemini-2.5-flash-image"
+  VITE_AI_MODEL_VIDEO: "veo-3.1-fast-generate-preview"
+  VITE_AI_MODEL_TTS: "gemini-2.5-flash-preview-tts"
+  # Hosting & Domain Configuration
+  VITE_APP_URL: "http://localhost:3000"
+  VITE_ADMIN_EMAIL: "Nhatlinhckm2016@gmail.com"
+  ADMIN_PASSWORD: "admin123"
+  MASTER_RECOVERY_KEY: "your-super-secret-recovery-key-2026"
+  # Email Configuration (Resend)
+  RESEND_API_KEY: "your-resend-api-key"
+  EMAIL_FROM: "onboarding@resend.dev"
+  # ONNX Runtime Configuration
+  ORT_LOGGING_LEVEL: "4"
   # Thêm các biến môi trường khác ở đây
 
 # Hoặc sử dụng env_content để paste trực tiếp
@@ -64,7 +90,7 @@ node_max_memory: "1G"  # Memory limit cho mỗi instance
 npm_build: true  # Chạy npm run build sau khi cài dependencies (cho Vite)
 npm_build_command: "npm run build"  # Command build (Vite: npm run build)
 use_pm2: true  # Sử dụng PM2 để quản lý Node.js app
-use_ts_node: true  # Sử dụng ts-node để chạy TypeScript trực tiếp (hoặc build trước)
+use_ts_node: false  # Sử dụng tsx thay vì ts-node
 
 # Cấu hình Python
 python_command: "gunicorn"  # Command để chạy Python app
@@ -96,17 +122,29 @@ docker_image_tag: "latest"
 # docker_compose: true  # Sử dụng docker-compose nếu có docker-compose.yml
 
 # Cấu hình Database
-install_mysql: true
-install_postgresql: false
-mysql_database: "mydb"
-mysql_user: "dbuser"
-mysql_password: "change_this_password"  # ĐỔI PASSWORD NÀY!
+install_mysql: false
+install_postgresql: true
+postgresql_database: "amazebid"
+postgresql_user: "amazebid_user"
+postgresql_password: "change_this_password"  # ĐỔI PASSWORD NÀY!
+
+# Cấu hình Redis (cho BullMQ queue và caching)
+install_redis: true
+redis_port: 6379
+redis_bind: "127.0.0.1"
+redis_password: ""  # Đặt password nếu cần
 
 # Cấu hình Prisma ORM
 prisma_generate: true  # Chạy prisma generate sau khi cài dependencies
 prisma_migrate: true  # Chạy prisma migrate deploy
 prisma_seed: false  # Chạy prisma db seed (nếu có seed file)
 prisma_schema_path: "./prisma/schema.prisma"  # Đường dẫn đến schema file
+
+# Cấu hình Prisma Integration - Tích hợp schema có sẵn với data storage
+prisma_integration_enabled: true  # Bật tích hợp Prisma schema
+prisma_merge_strategy: "extend"  # extend (thêm vào) hoặc replace (thay thế)
+prisma_auto_generate: true  # Tự động generate Prisma client sau khi merge
+prisma_auto_migrate: true  # Tự động chạy migrations sau khi merge
 
 # Cấu hình Web Server
 install_apache: false  # Set true nếu muốn dùng Apache thay vì Nginx
@@ -120,6 +158,19 @@ systemd_env_vars: "NODE_ENV=production"  # Environment variables cho systemd
 health_check_enabled: true
 health_check_path: "/health"
 health_check_status: 200
+
+# Backup Configuration
+backup_enabled: true
+backup_before_deploy: true  # Tự động backup trước khi deploy
+backup_retention_days: 30  # Giữ backup trong 30 ngày
+backup_database: true  # Backup database
+backup_code: true  # Backup code
+backup_path: "/opt/backups/amazebid"
+
+# Rollback Configuration
+rollback_enabled: true
+rollback_auto_on_failure: false  # Tự động rollback khi deploy thất bại (khuyến nghị: false)
+rollback_keep_versions: 5  # Giữ 5 phiên bản để rollback
 
 # Tùy chọn khác
 create_upload_dir: false  # Tạo directory uploads
@@ -183,6 +234,118 @@ cudnn_url: ""  # URL để download cuDNN (từ NVIDIA developer)
 install_pytorch_cuda: false  # Cài đặt PyTorch với CUDA support
 cuda_version_short: "121"  # Phiên bản CUDA short (cho PyTorch)
 
+# Cấu hình Ray Cluster (Distributed Computing)
+install_ray_cluster: false  # Cài đặt Ray Cluster cho distributed computing
+ray_cluster_name: "default-cluster"  # Tên cluster
+ray_node_type: "head"  # head hoặc worker
+ray_head_address: "192.168.1.100"  # Địa chỉ IP của head node (chỉ worker)
+ray_head_port: 6379  # Port của Ray head
+ray_dashboard_port: 8265  # Port của Ray dashboard
+ray_cpu_resources: 2  # Số CPU cho Ray (default: ansible_processor_vcpus)
+ray_memory_resources: 4  # Memory GB cho Ray (default: ansible_memtotal_mb // 1024)
+ray_worker_cpus: 2  # Số CPU cho worker
+ray_worker_gpus: 1  # Số GPU cho worker (nếu có GPU)
+ray_worker_memory: 4  # Memory GB cho worker
+
+# Cấu hình GPU API Service (REST API cho GPU)
+install_gpu_api_service: false  # Cài đặt GPU API Service trên máy GPU
+gpu_api_port: 8000  # Port cho GPU API
+gpu_api_memory_limit: "8G"  # Memory limit cho GPU API service
+gpu_monitor_interval: 60  # Giây giữa các lần monitor GPU
+gpu_memory_alert_threshold: 90  # Cảnh báo khi GPU memory > 90%
+
+# Cấu hình Federated Learning (Training phân tán)
+install_federated_learning: false  # Cài đặt Federated Learning
+federated_node_type: "server"  # server hoặc client
+federated_server_address: "192.168.1.100:8080"  # Địa chỉ server (cho client)
+federated_server_port: 8080  # Port của Federated Learning server
+federated_client_id: 1  # ID của client
+federated_num_rounds: 10  # Số rounds training
+federated_min_clients: 2  # Số clients tối thiểu để bắt đầu round
+federated_min_available_clients: 2  # Số clients tối thiểu available
+federated_fraction_fit: 1.0  # Tỷ lệ clients tham gia mỗi round
+federated_local_epochs: 5  # Số epochs local training
+federated_batch_size: 32  # Batch size cho local training
+federated_learning_install_deps: true  # Cài đặt dependencies
+
+# Cấu hình Mesh Network (P2P VPN)
+install_mesh_network: false  # Cài đặt Mesh Network
+mesh_network_type: "wireguard"  # wireguard hoặc tailscale
+mesh_node_name: "node-1"  # Tên node trong mesh network
+mesh_wireguard_address: "10.0.0.1/24"  # Địa chỉ IP trong mesh network
+mesh_wireguard_port: 51820  # Port WireGuard
+mesh_peers: []  # List peers (điền sau khi có public keys)
+mesh_test_peer: "10.0.0.1"  # Peer để test connectivity
+tailscale_auth_key: ""  # Auth key cho Tailscale (nếu dùng Tailscale)
+
+# Cấu hình Auto Client Setup (Zero-setup cho user - chỉ cần truy cập web)
+install_auto_client_setup: false  # Cài đặt Auto Client Setup API
+auto_setup_api_port: 9000  # Port cho Auto Setup API
+vite_app_url: "http://localhost:3000"  # URL của commercial app (user sẽ được redirect đến đây)
+
+# Cấu hình Commercial App Deployment (App thương mại của bạn)
+install_commercial_app: false  # Cài đặt và deploy commercial app
+commercial_app_name: "my-commercial-app"  # Tên commercial app
+commercial_app_path: "/opt/commercial-app"  # Đường dẫn cài đặt commercial app
+commercial_app_port: 3000  # Port cho commercial app
+deploy_method: "git"  # git hoặc local
+
+# Git Repository cho commercial app (nếu deploy_method = git)
+git_repository: "https://github.com/yourusername/your-commercial-app.git"
+git_branch: "main"
+
+# Local code path cho commercial app (nếu deploy_method = local)
+local_app_code_path: "./commercial-app-code"
+
+# Cấu hình Node.js cho commercial app
+node_env: "production"
+node_script: "server.ts"  # File chính (TypeScript)
+node_instances: 1  # Số instances PM2
+node_exec_mode: "fork"  # fork hoặc cluster
+node_max_memory: "1G"  # Memory limit cho mỗi instance
+npm_build: true  # Chạy npm run build (Vite)
+npm_build_command: "npm run build"
+use_pm2: true  # Sử dụng PM2 để quản lý
+use_ts_node: true  # Sử dụng ts-node
+
+# Cấu hình P2P Relay (GunDB) cho commercial app
+p2p_relay_enabled: true  # Bật P2P Relay
+p2p_relay_port: 8765  # Port cho P2P Relay
+
+# Cấu hình Socket.io cho commercial app
+socket_io_enabled: true  # Bật Socket.io
+socket_io_port: 3001  # Port cho Socket.io
+
+# Cấu hình Mesh Network cho commercial app
+mesh_network_enabled: true  # Kết nối với mesh network
+mesh_network_ip: "10.0.0.1"  # IP trong mesh network
+
+# Cấu hình Database cho commercial app
+database_url: "postgresql://user:password@localhost:5432/commercialapp"
+
+# Cấu hình Firebase cho commercial app (nếu dùng)
+firebase_api_key: "your-firebase-api-key"
+firebase_auth_domain: "your-project.firebaseapp.com"
+firebase_project_id: "your-project-id"
+firebase_storage_bucket: "your-project.appspot.com"
+firebase_messaging_sender_id: "your-sender-id"
+firebase_app_id: "your-app-id"
+
+# Cấu hình Vite cho commercial app
+vite_app_url: "https://your-app.com"  # URL của app (không có dấu / ở cuối)
+
+# Cấu hình Nginx cho commercial app
+install_nginx: true  # Cài đặt và cấu hình Nginx
+domain_name: "your-app.com"  # Domain name cho Nginx config
+
+# Cấu hình Security cho commercial app
+jwt_secret: "change-this-secret-in-production"
+encryption_key: "change-this-encryption-key"
+
+# Cấu hình Logging cho commercial app
+log_level: "info"
+log_file: "/var/log/commercial-app/app.log"
+
 # Cấu hình AI Ops (AI tự vận hành server)
 install_ai_chatops: false  # Chat với AI để quản lý server
 chatops_service_enabled: false  # Bật ChatOps service
@@ -232,3 +395,138 @@ container_gid: "1000"  # Group ID trong container
 
 # Load Balancer (chỉ dùng khi có nhiều app servers)
 # install_loadbalancer: false  # Bật nếu cần load balancing cho nhiều app servers
+
+# ============================================
+# DATA STORAGE CONFIGURATION - Xử lý và lưu trữ data
+# ============================================
+
+# Bật Data Storage
+data_storage_enabled: true
+storage_subdir: "data"
+
+# Cấu hình các ổ cứng server
+storage_disks:
+  - name: "primary"
+    device: "/dev/sdb1"
+    mount_point: "/mnt/data-primary"
+    fstype: "xfs"
+    format: false
+    mount_options: "defaults,noatime"
+    disk_type: "SSD"
+    is_primary: true
+    is_hot_swap: false
+    
+  - name: "hot"
+    device: "/dev/sdc1"
+    mount_point: "/mnt/data-hot"
+    fstype: "xfs"
+    format: false
+    mount_options: "defaults,noatime"
+    disk_type: "NVME"
+    is_primary: false
+    is_hot_swap: true
+    
+  - name: "archive"
+    device: "/dev/sdd1"
+    mount_point: "/mnt/data-archive"
+    fstype: "ext4"
+    format: false
+    mount_options: "defaults,noatime"
+    disk_type: "HDD"
+    is_primary: false
+    is_hot_swap: false
+    
+  - name: "backup"
+    device: "/dev/sde1"
+    mount_point: "/mnt/data-backup"
+    fstype: "ext4"
+    format: false
+    mount_options: "defaults,noatime"
+    disk_type: "HDD"
+    is_primary: false
+    is_hot_swap: false
+
+# Chiến lược phân bổ storage
+storage_allocation_strategy: "round_robin"  # round_robin, least_used, priority
+default_disk_for_upload: "primary"
+archive_after_days: 90
+backup_retention_days: 365
+
+# Storage Monitoring & Alerts
+storage_monitoring_enabled: true
+storage_warning_threshold: 80  # Cảnh báo khi > 80%
+storage_critical_threshold: 90  # Cảnh báo nghiêm trọng khi > 90%
+storage_alert_email: "admin@example.com"  # Email để nhận cảnh báo
+# storage_alert_webhook: "https://hooks.slack.com/..."  # Optional Slack webhook
+
+# Auto-archive khi ổ cứng đầy
+auto_archive_enabled: true
+auto_archive_threshold: 85  # Archive khi > 85%
+archive_target_disk: "archive"  # Archive sang ổ cứng nào
+
+# Cấu hình nén dữ liệu
+compression_enabled: true
+compression_algorithm: "zstd"  # gzip, lz4, zstd, brotli
+compression_level: 6
+compress_files_larger_than: "10MB"
+compress_content_types:
+  - "text/*"
+  - "application/json"
+  - "application/xml"
+  - "application/javascript"
+
+# Cấu hình mã hóa dữ liệu
+encryption_enabled: true
+encryption_algorithm: "AES-256-GCM"
+encryption_key_rotation_days: 90
+encrypt_at_rest: true
+encrypt_in_transit: true
+
+# Cấu hình phân loại dữ liệu
+auto_classify_enabled: true
+classification_model: "local"  # local, ai
+default_access_level: "INTERNAL"
+max_tags_per_item: 10
+
+# Cấu hình version control
+version_control_enabled: true
+max_versions_per_item: 10
+keep_versions_for_days: 365
+
+# Cấu hình audit logging
+audit_log_enabled: true
+audit_log_retention_days: 365
+log_access_attempts: true
+log_data_changes: true
+
+# Environment Variables cho Data Storage
+data_storage_env_vars:
+  # Database
+  DATA_STORAGE_DATABASE_URL: "postgresql://amazebid_user:change_this_password@localhost:5432/amazebid"
+  
+  # Encryption Keys (PHẢI ĐỔI TRONG PRODUCTION!)
+  DATA_STORAGE_ENCRYPTION_KEY: "your-256-bit-encryption-key-here-change-this"
+  DATA_STORAGE_ID_ENCRYPTION_KEY: "your-id-encryption-key-here-change-this"
+  
+  # Storage Paths
+  DATA_STORAGE_PRIMARY_PATH: "/mnt/data-primary/data"
+  DATA_STORAGE_HOT_PATH: "/mnt/data-hot/data"
+  DATA_STORAGE_ARCHIVE_PATH: "/mnt/data-archive/data"
+  DATA_STORAGE_BACKUP_PATH: "/mnt/data-backup/data"
+  
+  # Compression
+  DATA_STORAGE_COMPRESSION_ENABLED: "true"
+  DATA_STORAGE_COMPRESSION_ALGORITHM: "zstd"
+  DATA_STORAGE_COMPRESSION_LEVEL: "6"
+  
+  # Classification
+  DATA_STORAGE_AUTO_CLASSIFY_ENABLED: "true"
+  DATA_STORAGE_CLASSIFICATION_MODEL: "local"
+  
+  # Version Control
+  DATA_STORAGE_VERSION_CONTROL_ENABLED: "true"
+  DATA_STORAGE_MAX_VERSIONS: "10"
+  
+  # Audit
+  DATA_STORAGE_AUDIT_LOG_ENABLED: "true"
+  DATA_STORAGE_AUDIT_LOG_RETENTION_DAYS: "365"

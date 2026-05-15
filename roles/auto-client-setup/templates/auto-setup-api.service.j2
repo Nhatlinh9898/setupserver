@@ -1,0 +1,16 @@
+[Unit]
+Description=Auto Client Setup API - Zero-setup for users
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/auto-client-setup
+Environment="PATH=/usr/local/bin:/usr/bin"
+Environment="APP_URL={{ vite_app_url | default('http://localhost:3000') }}"
+ExecStart=/usr/local/bin/python3 auto_setup_api.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,145 @@
+---
+# Federated Learning Role - Training phân tán trên nhiều máy
+
+- name: Cài đặt Python dependencies
+  apt:
+    name:
+      - python3-pip
+      - python3-venv
+      - python3-dev
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Cài đặt Python dependencies (CentOS)
+  yum:
+    name:
+      - python3-pip
+      - python3-devel
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Cài đặt Federated Learning libraries
+  pip:
+    name:
+      - flower
+      - flwr
+      - tensorflow
+      - torch
+      - numpy
+      - pandas
+      - scikit-learn
+    state: present
+    executable: pip3
+  ignore_errors: yes
+
+- name: Tạo Federated Learning user
+  user:
+    name: fl
+    system: yes
+    shell: /bin/bash
+    home: /opt/federated-learning
+    create_home: yes
+
+- name: Tạo Federated Learning directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: fl
+    group: fl
+  loop:
+    - /opt/federated-learning
+    - /opt/federated-learning/clients
+    - /opt/federated-learning/server
+    - /opt/federated-learning/models
+    - /opt/federated-learning/data
+    - /opt/federated-learning/logs
+
+- name: Copy Federated Learning server application
+  template:
+    src: fl_server.py.j2
+    dest: /opt/federated-learning/server/fl_server.py
+    mode: '0644'
+    owner: fl
+    group: fl
+
+- name: Copy Federated Learning client application
+  template:
+    src: fl_client.py.j2
+    dest: /opt/federated-learning/clients/fl_client.py
+    mode: '0644'
+    owner: fl
+    group: fl
+
+- name: Cài đặt Federated Learning dependencies
+  pip:
+    requirements: /opt/federated-learning/requirements.txt
+    virtualenv: /opt/federated-learning/venv
+    state: present
+  when: federated_learning_install_deps | default(true)
+
+- name: Tạo Federated Learning server service
+  template:
+    src: fl-server.service.j2
+    dest: /etc/systemd/system/fl-server.service
+    mode: '0644'
+  when: federated_node_type == "server" or federated_node_type is not defined
+  notify: restart fl-server
+
+- name: Tạo Federated Learning client service
+  template:
+    src: fl-client.service.j2
+    dest: /etc/systemd/system/fl-client.service
+    mode: '0644'
+  when: federated_node_type == "client"
+  notify: restart fl-client
+
+- name: Enable Federated Learning server service
+  systemd:
+    name: fl-server
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: federated_node_type == "server" or federated_node_type is not defined
+
+- name: Enable Federated Learning client service
+  systemd:
+    name: fl-client
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: federated_node_type == "client"
+
+- name: Mở port Federated Learning trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ federated_server_port | default(8080) }}"
+    proto: tcp
+  when: ansible_os_family == "Debian" and (federated_node_type == "server" or federated_node_type is not defined)
+
+- name: Mở port Federated Learning trên firewall (CentOS)
+  firewalld:
+    port: "{{ federated_server_port | default(8080) }}/tcp"
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and (federated_node_type == "server" or federated_node_type is not defined)
+  notify: reload firewalld
+
+handlers:
+  - name: restart fl-server
+    systemd:
+      name: fl-server
+      state: restarted
+      daemon_reload: yes
+
+  - name: restart fl-client
+    systemd:
+      name: fl-client
+      state: restarted
+      daemon_reload: yes
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

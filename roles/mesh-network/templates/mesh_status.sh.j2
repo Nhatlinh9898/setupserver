@@ -1,0 +1,29 @@
+#!/bin/bash
+# Mesh Network Status Check Script
+
+echo "=== Mesh Network Status ==="
+echo ""
+
+{% if mesh_network_type == "wireguard" %}
+echo "WireGuard Status:"
+wg show
+echo ""
+
+echo "WireGuard Interface Status:"
+ip addr show wg0
+echo ""
+
+echo "Connected Peers:"
+wg show wg0 peers
+{% elif mesh_network_type == "tailscale" %}
+echo "Tailscale Status:"
+tailscale status
+echo ""
+
+echo "Tailscale IP:"
+tailscale ip -4
+{% endif %}
+
+echo ""
+echo "=== Network Connectivity ==="
+ping -c 3 {{ mesh_test_peer | default('10.0.0.1') }}

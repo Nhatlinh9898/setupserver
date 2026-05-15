@@ -1,0 +1,339 @@
+"""
+GPU API Service - REST API cho GPU inference/training
+Supports: PyTorch, TensorFlow, Custom Models
+"""
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import torch
+import numpy as np
+import base64
+import io
+import json
+import os
+import logging
+from typing import Optional, Dict, Any
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/opt/gpu-api/logs/gpu-api.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Initialize FastAPI
+app = FastAPI(
+    title="GPU API Service",
+    description="REST API for GPU inference and training",
+    version="1.0.0"
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Check GPU availability
+GPU_AVAILABLE = torch.cuda.is_available()
+GPU_COUNT = torch.cuda.device_count() if GPU_AVAILABLE else 0
+GPU_NAME = torch.cuda.get_device_name(0) if GPU_AVAILABLE else "No GPU"
+
+logger.info(f"GPU Available: {GPU_AVAILABLE}")
+logger.info(f"GPU Count: {GPU_COUNT}")
+logger.info(f"GPU Name: {GPU_NAME}")
+
+# Global model cache
+MODEL_CACHE = {}
+
+# Pydantic models
+class InferenceRequest(BaseModel):
+    model_name: str
+    input_data: Dict[str, Any]
+    model_path: Optional[str] = None
+
+class TrainingRequest(BaseModel):
+    model_name: str
+    training_data: Dict[str, Any]
+    epochs: int = 10
+    batch_size: int = 32
+    learning_rate: float = 0.001
+
+class GPUInfo(BaseModel):
+    available: bool
+    count: int
+    device_name: str
+    memory_total: int
+    memory_used: int
+    memory_free: int
+
+# Endpoints
+@app.get("/")
+async def root():
+    return {
+        "service": "GPU API Service",
+        "status": "running",
+        "gpu_available": GPU_AVAILABLE,
+        "gpu_count": GPU_COUNT
+    }
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "gpu_available": GPU_AVAILABLE,
+        "timestamp": torch.cuda.current_device() if GPU_AVAILABLE else None
+    }
+
+@app.get("/gpu/info", response_model=GPUInfo)
+async def get_gpu_info():
+    if not GPU_AVAILABLE:
+        return GPUInfo(
+            available=False,
+            count=0,
+            device_name="No GPU",
+            memory_total=0,
+            memory_used=0,
+            memory_free=0
+        )
+    
+    props = torch.cuda.get_device_properties(0)
+    memory_total = props.total_memory
+    memory_used = torch.cuda.memory_allocated(0)
+    memory_free = memory_total - memory_used
+    
+    return GPUInfo(
+        available=True,
+        count=GPU_COUNT,
+        device_name=GPU_NAME,
+        memory_total=memory_total,
+        memory_used=memory_used,
+        memory_free=memory_free
+    )
+
+@app.post("/inference")
+async def inference(request: InferenceRequest):
+    """
+    Run inference on GPU
+    """
+    if not GPU_AVAILABLE:
+        raise HTTPException(status_code=503, detail="GPU not available")
+    
+    try:
+        # Load model (simplified - in production, implement proper model loading)
+        model = load_model(request.model_name, request.model_path)
+        
+        # Move model to GPU
+        device = torch.device("cuda:0")
+        model = model.to(device)
+        
+        # Process input data (simplified)
+        input_tensor = preprocess_input(request.input_data)
+        input_tensor = input_tensor.to(device)
+        
+        # Run inference
+        with torch.no_grad():
+            output = model(input_tensor)
+        
+        # Post-process output
+        result = postprocess_output(output)
+        
+        logger.info(f"Inference completed for model: {request.model_name}")
+        
+        return {
+            "status": "success",
+            "model": request.model_name,
+            "result": result,
+            "device": str(device)
+        }
+    
+    except Exception as e:
+        logger.error(f"Inference error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/training")
+async def training(request: TrainingRequest, background_tasks: BackgroundTasks):
+    """
+    Start training on GPU (async)
+    """
+    if not GPU_AVAILABLE:
+        raise HTTPException(status_code=503, detail="GPU not available")
+    
+    try:
+        # Start training in background
+        training_id = f"training_{os.urandom(8).hex()}"
+        background_tasks.add_task(
+            run_training,
+            training_id,
+            request.model_name,
+            request.training_data,
+            request.epochs,
+            request.batch_size,
+            request.learning_rate
+        )
+        
+        logger.info(f"Training started: {training_id}")
+        
+        return {
+            "status": "started",
+            "training_id": training_id,
+            "model": request.model_name,
+            "epochs": request.epochs
+        }
+    
+    except Exception as e:
+        logger.error(f"Training error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload-model")
+async def upload_model(
+    file: UploadFile = File(...),
+    model_name: str = None
+):
+    """
+    Upload a model file to the server
+    """
+    if not model_name:
+        raise HTTPException(status_code=400, detail="model_name is required")
+    
+    try:
+        # Save uploaded file
+        model_dir = Path("/opt/gpu-api/app/models")
+        model_dir.mkdir(parents=True, exist_ok=True)
+        
+        model_path = model_dir / model_name
+        with model_path.open("wb") as f:
+            f.write(await file.read())
+        
+        logger.info(f"Model uploaded: {model_name}")
+        
+        return {
+            "status": "success",
+            "model_name": model_name,
+            "path": str(model_path)
+        }
+    
+    except Exception as e:
+        logger.error(f"Upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/models")
+async def list_models():
+    """
+    List available models
+    """
+    model_dir = Path("/opt/gpu-api/app/models")
+    models = []
+    
+    if model_dir.exists():
+        for model_file in model_dir.iterdir():
+            if model_file.is_file():
+                models.append({
+                    "name": model_file.name,
+                    "size": model_file.stat().st_size,
+                    "path": str(model_file)
+                })
+    
+    return {"models": models}
+
+# Helper functions
+def load_model(model_name: str, model_path: Optional[str] = None):
+    """
+    Load model from cache or disk
+    """
+    if model_name in MODEL_CACHE:
+        return MODEL_CACHE[model_name]
+    
+    # Simplified model loading - implement based on your model format
+    if model_path and os.path.exists(model_path):
+        model = torch.load(model_path)
+    else:
+        # Create a dummy model for demo
+        model = torch.nn.Sequential(
+            torch.nn.Linear(10, 50),
+            torch.nn.ReLU(),
+            torch.nn.Linear(50, 10)
+        )
+    
+    MODEL_CACHE[model_name] = model
+    return model
+
+def preprocess_input(input_data: Dict[str, Any]):
+    """
+    Preprocess input data
+    """
+    # Simplified - implement based on your data format
+    if "tensor" in input_data:
+        return torch.tensor(input_data["tensor"])
+    elif "array" in input_data:
+        return torch.tensor(input_data["array"])
+    else:
+        return torch.randn(1, 10)  # Dummy input
+
+def postprocess_output(output):
+    """
+    Postprocess model output
+    """
+    # Simplified - implement based on your output format
+    if isinstance(output, torch.Tensor):
+        return output.cpu().numpy().tolist()
+    return output
+
+def run_training(
+    training_id: str,
+    model_name: str,
+    training_data: Dict[str, Any],
+    epochs: int,
+    batch_size: int,
+    learning_rate: float
+):
+    """
+    Run training in background
+    """
+    try:
+        logger.info(f"Training {training_id} started")
+        
+        # Simplified training loop - implement based on your needs
+        model = load_model(model_name)
+        device = torch.device("cuda:0")
+        model = model.to(device)
+        
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        criterion = torch.nn.MSELoss()
+        
+        for epoch in range(epochs):
+            # Training loop (simplified)
+            optimizer.zero_grad()
+            output = model(torch.randn(batch_size, 10).to(device))
+            loss = criterion(output, torch.randn(batch_size, 10).to(device))
+            loss.backward()
+            optimizer.step()
+            
+            logger.info(f"Training {training_id} - Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+        
+        logger.info(f"Training {training_id} completed")
+        
+        # Save trained model
+        model_path = Path(f"/opt/gpu-api/app/models/{model_name}_trained.pt")
+        torch.save(model.state_dict(), model_path)
+        
+    except Exception as e:
+        logger.error(f"Training {training_id} error: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port={{ gpu_api_port | default(8000) }},
+        log_level="info"
+    )

@@ -1,0 +1,41 @@
+# Ray Configuration with GPU Support
+
+cluster_name: "{{ ray_cluster_name | default('default-cluster') }}"
+
+provider:
+  type: local
+
+# Available resources
+available_resources:
+  CPU: {{ ansible_processor_vcpus }}
+  memory: {{ ansible_memtotal_mb // 1024 }}  # GB
+  {% if install_cuda | default(false) %}
+  GPU: {{ gpu_count.stdout | default(0) | int }}
+  {% endif %}
+
+# Worker configuration
+worker:
+  num_cpus: {{ ray_worker_cpus | default(ansible_processor_vcpus) }}
+  num_gpus: {{ ray_worker_gpus | default(1) if install_cuda | default(false) else 0 }}
+  memory: {{ ray_worker_memory | default(ansible_memtotal_mb // 1024) }}  # GB
+
+# Head node configuration
+head_node:
+  ip: "{{ ansible_default_ipv4.address }}"
+  port: {{ ray_head_port | default(6379) }}
+  dashboard_port: {{ ray_dashboard_port | default(8265) }}
+
+# Logging
+logging:
+  log_dir: /opt/ray/logs
+  rotation_bytes: 536870912  # 512MB
+  rotation_backup_count: 10
+
+# Storage
+storage:
+  storage_dir: /opt/ray/storage
+
+# Dashboard
+dashboard:
+  host: 0.0.0.0
+  port: {{ ray_dashboard_port | default(8265) }}

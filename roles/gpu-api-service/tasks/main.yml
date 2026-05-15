@@ -1,0 +1,160 @@
+---
+# GPU API Service Role - REST API cho GPU inference/training
+
+- name: Cài đặt Python dependencies
+  apt:
+    name:
+      - python3-pip
+      - python3-venv
+      - python3-dev
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Cài đặt Python dependencies (CentOS)
+  yum:
+    name:
+      - python3-pip
+      - python3-devel
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Kiểm tra GPU NVIDIA
+  command: nvidia-smi
+  register: nvidia_gpu
+  failed_when: false
+  changed_when: false
+
+- name: Thông báo nếu không có GPU
+  debug:
+    msg: "CẢNH BÁO: Không phát hiện GPU NVIDIA. GPU API Service sẽ không hoạt động đúng."
+  when: nvidia_gpu.rc != 0
+
+- name: Cài đặt PyTorch với CUDA
+  pip:
+    name:
+      - torch
+      - torchvision
+      - torchaudio
+      --index-url https://download.pytorch.org/whl/cu{{ cuda_version_short | default('121') }}
+    state: present
+    executable: pip3
+  when: nvidia_gpu.rc == 0
+  ignore_errors: yes
+
+- name: Cài đặt FastAPI và dependencies
+  pip:
+    name:
+      - fastapi
+      - uvicorn[standard]
+      - pydantic
+      - python-multipart
+      - aiofiles
+      - pillow
+      - numpy
+    state: present
+    executable: pip3
+  when: nvidia_gpu.rc == 0
+
+- name: Tạo GPU API user
+  user:
+    name: gpuapi
+    system: yes
+    shell: /bin/bash
+    home: /opt/gpu-api
+    create_home: yes
+
+- name: Tạo GPU API directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: gpuapi
+    group: gpuapi
+  loop:
+    - /opt/gpu-api
+    - /opt/gpu-api/app
+    - /opt/gpu-api/app/models
+    - /opt/gpu-api/app/uploads
+    - /opt/gpu-api/app/temp
+    - /opt/gpu-api/logs
+
+- name: Copy GPU API application
+  template:
+    src: "{{ item }}"
+    dest: "/opt/gpu-api/app/{{ item | basename }}"
+    mode: '0644'
+    owner: gpuapi
+    group: gpuapi
+  loop:
+    - gpu_api_main.py.j2
+    - gpu_api_requirements.txt.j2
+  when: nvidia_gpu.rc == 0
+
+- name: Cài đặt GPU API dependencies
+  pip:
+    requirements: /opt/gpu-api/app/gpu_api_requirements.txt
+    virtualenv: /opt/gpu-api/venv
+    state: present
+  when: nvidia_gpu.rc == 0
+
+- name: Tạo GPU API systemd service
+  template:
+    src: gpu-api.service.j2
+    dest: /etc/systemd/system/gpu-api.service
+    mode: '0644'
+  when: nvidia_gpu.rc == 0
+  notify: restart gpu-api
+
+- name: Enable GPU API service
+  systemd:
+    name: gpu-api
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: nvidia_gpu.rc == 0
+
+- name: Mở port GPU API trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ gpu_api_port | default(8000) }}"
+    proto: tcp
+  when: ansible_os_family == "Debian" and nvidia_gpu.rc == 0
+
+- name: Mở port GPU API trên firewall (CentOS)
+  firewalld:
+    port: "{{ gpu_api_port | default(8000) }}/tcp"
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and nvidia_gpu.rc == 0
+  notify: reload firewalld
+
+- name: Tạo health check endpoint test
+  copy:
+    content: |
+      #!/bin/bash
+      curl -f http://localhost:{{ gpu_api_port | default(8000) }}/health || exit 1
+    dest: /usr/local/bin/gpu-api-healthcheck
+    mode: '0755'
+  when: nvidia_gpu.rc == 0
+
+- name: Tạo GPU API monitoring script
+  template:
+    src: gpu_monitor.py.j2
+    dest: /opt/gpu-api/gpu_monitor.py
+    mode: '0755'
+    owner: gpuapi
+    group: gpuapi
+  when: nvidia_gpu.rc == 0
+
+handlers:
+  - name: restart gpu-api
+    systemd:
+      name: gpu-api
+      state: restarted
+      daemon_reload: yes
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

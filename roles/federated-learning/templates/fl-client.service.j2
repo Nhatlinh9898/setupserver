@@ -1,0 +1,20 @@
+[Unit]
+Description=Federated Learning Client
+After=network.target
+
+[Service]
+Type=simple
+User=fl
+Group=fl
+WorkingDirectory=/opt/federated-learning/clients
+Environment="PATH=/opt/federated-learning/venv/bin"
+ExecStart=/opt/federated-learning/venv/bin/python fl_client.py
+Restart=always
+RestartSec=10
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

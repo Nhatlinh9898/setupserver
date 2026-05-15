@@ -1,0 +1,150 @@
+---
+# Mesh Network Role - P2P VPN connection giữa các nodes
+
+- name: Cài đặt WireGuard
+  apt:
+    name:
+      - wireguard
+      - wireguard-tools
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian" and mesh_network_type == "wireguard"
+
+- name: Cài đặt WireGuard (CentOS)
+  yum:
+    name:
+      - wireguard-tools
+      - wireguard-dkms
+    state: present
+  when: ansible_os_family == "RedHat" and mesh_network_type == "wireguard"
+
+- name: Cài đặt Tailscale
+  block:
+    - name: Add Tailscale repository key
+      apt_key:
+        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.gpg
+        state: present
+
+    - name: Add Tailscale repository
+      apt_repository:
+        repo: "deb https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main"
+        state: present
+
+    - name: Install Tailscale
+      apt:
+        name: tailscale
+        state: present
+        update_cache: yes
+
+  when: ansible_os_family == "Debian" and mesh_network_type == "tailscale"
+
+- name: Cài đặt Tailscale (CentOS)
+  block:
+    - name: Add Tailscale repository
+      yum:
+        name: https://pkgs.tailscale.com/stable/centos/{{ ansible_distribution_major_version }}/tailscale.repo
+        state: present
+
+    - name: Install Tailscale
+      yum:
+        name: tailscale
+        state: present
+
+  when: ansible_os_family == "RedHat" and mesh_network_type == "tailscale"
+
+- name: Tạo WireGuard private key
+  shell: wg genkey > /etc/wireguard/privatekey
+  args:
+    creates: /etc/wireguard/privatekey
+  when: mesh_network_type == "wireguard"
+
+- name: Tạo WireGuard public key
+  shell: wg pubkey < /etc/wireguard/privatekey > /etc/wireguard/publickey
+  args:
+    creates: /etc/wireguard/publickey
+  when: mesh_network_type == "wireguard"
+
+- name: Đọc WireGuard public key
+  command: cat /etc/wireguard/publickey
+  register: wg_public_key
+  changed_when: false
+  when: mesh_network_type == "wireguard"
+
+- name: Đọc WireGuard private key
+  command: cat /etc/wireguard/privatekey
+  register: wg_private_key
+  changed_when: false
+  when: mesh_network_type == "wireguard"
+
+- name: Hiển thị WireGuard keys
+  debug:
+    msg:
+      Public Key: "{{ wg_public_key.stdout }}"
+      Private Key: "{{ wg_private_key.stdout }}"
+  when: mesh_network_type == "wireguard"
+
+- name: Cấu hình WireGuard interface
+  template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: '0600'
+  when: mesh_network_type == "wireguard"
+  notify: restart wireguard
+
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    sysctl_set: yes
+
+- name: Bật WireGuard interface
+  systemd:
+    name: wg-quick@wg0
+    enabled: yes
+    state: started
+  when: mesh_network_type == "wireguard"
+
+- name: Authenticate Tailscale
+  shell: tailscale up --authkey {{ tailscale_auth_key }} --hostname {{ mesh_node_name | default(inventory_hostname) }}
+  when: mesh_network_type == "tailscale" and tailscale_auth_key is defined
+  ignore_errors: yes
+
+- name: Bật Tailscale service
+  systemd:
+    name: tailscaled
+    enabled: yes
+    state: started
+  when: mesh_network_type == "tailscale"
+
+- name: Mở port WireGuard trên firewall (Ubuntu)
+  ufw:
+    rule: allow
+    port: "{{ mesh_wireguard_port | default(51820) }}"
+    proto: udp
+  when: ansible_os_family == "Debian" and mesh_network_type == "wireguard"
+
+- name: Mở port WireGuard trên firewall (CentOS)
+  firewalld:
+    port: "{{ mesh_wireguard_port | default(51820) }}/udp"
+    permanent: yes
+    state: enabled
+  when: ansible_os_family == "RedHat" and mesh_network_type == "wireguard"
+  notify: reload firewalld
+
+- name: Tạo mesh network status script
+  template:
+    src: mesh_status.sh.j2
+    dest: /usr/local/bin/mesh-status
+    mode: '0755'
+
+handlers:
+  - name: restart wireguard
+    systemd:
+      name: wg-quick@wg0
+      state: restarted
+
+  - name: reload firewalld
+    systemd:
+      name: firewalld
+      state: reloaded

@@ -1,0 +1,493 @@
+---
+# Data Storage Role - Cấu hình storage disks và data processing
+
+- name: Check if data storage is enabled
+  debug:
+    msg: "Data Storage is enabled: {{ data_storage_enabled | default(false) }}"
+
+- name: Install required packages for storage management
+  apt:
+    name:
+      - xfsprogs
+      - ntfs-3g
+      - hfsutils
+      - parted
+      - lvm2
+      - zstd
+      - lz4
+      - brotli
+    state: present
+    update_cache: yes
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create mount points for storage disks
+  file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Format disks if specified
+  filesystem:
+    fstype: "{{ item.fstype }}"
+    dev: "{{ item.device }}"
+  loop: "{{ storage_disks | default([]) }}"
+  when: 
+    - data_storage_enabled | default(false)
+    - item.format | default(false)
+  become: yes
+
+- name: Mount storage disks
+  mount:
+    path: "{{ item.mount_point }}"
+    src: "{{ item.device }}"
+    fstype: "{{ item.fstype }}"
+    opts: "{{ item.mount_options | default('defaults,noatime') }}"
+    state: mounted
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Set ownership for mount points
+  file:
+    path: "{{ item.mount_point }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create storage subdirectories
+  file:
+    path: "{{ item.mount_point }}/{{ storage_subdir | default('data') }}"
+    state: directory
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create version control directory
+  file:
+    path: "{{ item.mount_point }}/versions"
+    state: directory
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  loop: "{{ storage_disks | default([]) }}"
+  when: 
+    - data_storage_enabled | default(false)
+    - version_control_enabled | default(false)
+  become: yes
+
+- name: Create backup directory
+  file:
+    path: "{{ item.mount_point }}/backups"
+    state: directory
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Add storage disks to /etc/fstab for auto-mount
+  lineinfile:
+    path: /etc/fstab
+    line: "{{ item.device }} {{ item.mount_point }} {{ item.fstype }} {{ item.mount_options | default('defaults,noatime') }} 0 2"
+    state: present
+    create: yes
+  loop: "{{ storage_disks | default([]) }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create data storage configuration directory
+  file:
+    path: "/opt/data-storage"
+    state: directory
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create data storage logs directory
+  file:
+    path: "/opt/data-storage/logs"
+    state: directory
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Copy data storage configuration file
+  copy:
+    content: |
+      # Data Storage Configuration
+      STORAGE_ENABLED={{ data_storage_enabled | default(false) }}
+      STORAGE_ALLOCATION_STRATEGY={{ storage_allocation_strategy | default('round_robin') }}
+      DEFAULT_DISK_FOR_UPLOAD={{ default_disk_for_upload | default('primary') }}
+      ARCHIVE_AFTER_DAYS={{ archive_after_days | default(90) }}
+      BACKUP_RETENTION_DAYS={{ backup_retention_days | default(365) }}
+      
+      # Compression
+      COMPRESSION_ENABLED={{ compression_enabled | default(false) }}
+      COMPRESSION_ALGORITHM={{ compression_algorithm | default('zstd') }}
+      COMPRESSION_LEVEL={{ compression_level | default(6) }}
+      
+      # Encryption
+      ENCRYPTION_ENABLED={{ encryption_enabled | default(false) }}
+      ENCRYPTION_ALGORITHM={{ encryption_algorithm | default('AES-256-GCM') }}
+      ENCRYPTION_KEY_ROTATION_DAYS={{ encryption_key_rotation_days | default(90) }}
+      
+      # Classification
+      AUTO_CLASSIFY_ENABLED={{ auto_classify_enabled | default(false) }}
+      CLASSIFICATION_MODEL={{ classification_model | default('local') }}
+      DEFAULT_ACCESS_LEVEL={{ default_access_level | default('INTERNAL') }}
+      MAX_TAGS_PER_ITEM={{ max_tags_per_item | default(10) }}
+      
+      # Version Control
+      VERSION_CONTROL_ENABLED={{ version_control_enabled | default(false) }}
+      MAX_VERSIONS_PER_ITEM={{ max_versions_per_item | default(10) }}
+      KEEP_VERSIONS_FOR_DAYS={{ keep_versions_for_days | default(365) }}
+      
+      # Audit
+      AUDIT_LOG_ENABLED={{ audit_log_enabled | default(false) }}
+      AUDIT_LOG_RETENTION_DAYS={{ audit_log_retention_days | default(365) }}
+      LOG_ACCESS_ATTEMPTS={{ log_access_attempts | default(true) }}
+      LOG_DATA_CHANGES={{ log_data_changes | default(true) }}
+    dest: /opt/data-storage/config.env
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0644'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create storage monitoring script
+  copy:
+    content: |
+      #!/bin/bash
+      # Storage Monitoring Script
+      
+      LOG_FILE="/opt/data-storage/logs/storage-monitor.log"
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      
+      echo "[$DATE] Storage Monitoring Check" >> $LOG_FILE
+      
+      # Check disk usage
+      for mount in /mnt/data-*; do
+        if [ -d "$mount" ]; then
+          USAGE=$(df -h "$mount" | tail -1 | awk '{print $5}' | sed 's/%//')
+          echo "[$DATE] $mount usage: $USAGE%" >> $LOG_FILE
+          
+          if [ $USAGE -gt 90 ]; then
+            echo "[$DATE] WARNING: $mount usage is above 90%" >> $LOG_FILE
+          fi
+        fi
+      done
+      
+      # Check disk health
+      for device in /dev/sd[b-z]1; do
+        if [ -e "$device" ]; then
+          echo "[$DATE] Checking health of $device" >> $LOG_FILE
+          smartctl -H "$device" >> $LOG_FILE 2>&1
+        fi
+      done
+      
+      echo "[$DATE] Storage monitoring completed" >> $LOG_FILE
+    dest: /opt/data-storage/monitor-storage.sh
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create storage cleanup script
+  copy:
+    content: |
+      #!/bin/bash
+      # Storage Cleanup Script
+      
+      LOG_FILE="/opt/data-storage/logs/cleanup.log"
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      ARCHIVE_DAYS={{ archive_after_days | default(90) }}
+      BACKUP_RETENTION_DAYS={{ backup_retention_days | default(365) }}
+      VERSION_RETENTION_DAYS={{ keep_versions_for_days | default(365) }}
+      
+      echo "[$DATE] Storage Cleanup Started" >> $LOG_FILE
+      
+      # Archive old data from primary to archive
+      if [ -d "/mnt/data-primary/data" ] && [ -d "/mnt/data-archive/data" ]; then
+        echo "[$DATE] Archiving data older than $ARCHIVE_DAYS days" >> $LOG_FILE
+        find /mnt/data-primary/data -type f -mtime +$ARCHIVE_DAYS -exec mv {} /mnt/data-archive/data/ \;
+      fi
+      
+      # Delete old backups
+      if [ -d "/mnt/data-backup/backups" ]; then
+        echo "[$DATE] Deleting backups older than $BACKUP_RETENTION_DAYS days" >> $LOG_FILE
+        find /mnt/data-backup/backups -type f -mtime +$BACKUP_RETENTION_DAYS -delete
+      fi
+      
+      # Delete old versions
+      for mount in /mnt/data-*; do
+        if [ -d "$mount/versions" ]; then
+          echo "[$DATE] Deleting versions older than $VERSION_RETENTION_DAYS days from $mount" >> $LOG_FILE
+          find "$mount/versions" -type f -mtime +$VERSION_RETENTION_DAYS -delete
+        fi
+      done
+      
+      echo "[$DATE] Storage Cleanup Completed" >> $LOG_FILE
+    dest: /opt/data-storage/cleanup-storage.sh
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Setup cron job for storage monitoring
+  cron:
+    name: "Storage Monitoring"
+    job: "/opt/data-storage/monitor-storage.sh"
+    minute: "0"
+    hour: "*/6"
+    user: "{{ app_user | default('admin') }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Setup cron job for storage cleanup
+  cron:
+    name: "Storage Cleanup"
+    job: "/opt/data-storage/cleanup-storage.sh"
+    minute: "0"
+    hour: "2"
+    weekday: "0"
+    user: "{{ app_user | default('admin') }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create disk monitoring script with alerts
+  copy:
+    content: |
+      #!/bin/bash
+      # Storage Monitoring Script with Alerts
+      
+      LOG_FILE="/opt/data-storage/logs/storage-monitor.log"
+      ALERT_LOG="/opt/data-storage/logs/storage-alerts.log"
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      
+      # Configuration
+      WARNING_THRESHOLD={{ storage_warning_threshold | default(80) }}
+      CRITICAL_THRESHOLD={{ storage_critical_threshold | default(90) }}
+      
+      echo "[$DATE] Storage Monitoring Check" >> $LOG_FILE
+      
+      # Check each storage disk
+      for mount in /mnt/data-*; do
+          if [ -d "$mount" ]; then
+              # Get usage percentage
+              USAGE=$(df -h "$mount" | tail -1 | awk '{print $5}' | sed 's/%//')
+              DISK_NAME=$(basename "$mount")
+              
+              echo "[$DATE] $DISK_NAME usage: $USAGE%" >> $LOG_FILE
+              
+              # Warning alert
+              if [ $USAGE -ge $WARNING_THRESHOLD ] && [ $USAGE -lt $CRITICAL_THRESHOLD ]; then
+                  echo "[$DATE] WARNING: $DISK_NAME usage is $USAGE% (threshold: $WARNING_THRESHOLD%)" >> $ALERT_LOG
+              fi
+              
+              # Critical alert
+              if [ $USAGE -ge $CRITICAL_THRESHOLD ]; then
+                  echo "[$DATE] CRITICAL: $DISK_NAME usage is $USAGE% (threshold: $CRITICAL_THRESHOLD%)" >> $ALERT_LOG
+                  
+                  # Trigger auto-archive if enabled
+                  if [ "{{ auto_archive_enabled | default(false) }}" == "true" ]; then
+                      echo "[$DATE] Triggering auto-archive for $DISK_NAME" >> $LOG_FILE
+                      /opt/data-storage/auto-archive.sh "$mount"
+                  fi
+              fi
+          fi
+      done
+      
+      echo "[$DATE] Storage monitoring completed" >> $LOG_FILE
+    dest: /opt/data-storage/monitor-disks.sh
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create auto-archive script
+  copy:
+    content: |
+      #!/bin/bash
+      # Auto-archive script - Move old data to archive disk
+      
+      SOURCE_DISK=$1
+      LOG_FILE="/opt/data-storage/logs/auto-archive.log"
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      
+      if [ -z "$SOURCE_DISK" ]; then
+          echo "[$DATE] Error: No source disk specified" >> $LOG_FILE
+          exit 1
+      fi
+      
+      ARCHIVE_DISK="{{ archive_target_disk | default('archive') }}"
+      ARCHIVE_DAYS={{ archive_after_days | default(90) }}
+      
+      echo "[$DATE] Auto-archive started for $SOURCE_DISK" >> $LOG_FILE
+      
+      # Archive data older than X days
+      if [ -d "$SOURCE_DISK/data" ] && [ -d "/mnt/data-$ARCHIVE_DISK/data" ]; then
+          echo "[$DATE] Archiving data older than $ARCHIVE_DAYS days" >> $LOG_FILE
+          
+          # Find and move old files
+          find "$SOURCE_DISK/data" -type f -mtime +$ARCHIVE_DAYS -print0 | while IFS= read -r -d '' file; do
+              # Get relative path
+              rel_path="${file#$SOURCE_DISK/data/}"
+              target_dir="/mnt/data-$ARCHIVE_DISK/data/$(dirname "$rel_path")"
+              
+              # Create target directory if needed
+              mkdir -p "$target_dir"
+              
+              # Move file
+              mv "$file" "$target_dir/"
+              echo "[$DATE] Archived: $rel_path" >> $LOG_FILE
+          done
+          
+          echo "[$DATE] Auto-archive completed for $SOURCE_DISK" >> $LOG_FILE
+      else
+          echo "[$DATE] Error: Source or archive directory not found" >> $LOG_FILE
+          exit 1
+      fi
+    dest: /opt/data-storage/auto-archive.sh
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create storage rebalance script
+  copy:
+    content: |
+      #!/bin/bash
+      # Rebalance storage - Distribute data between disks
+      
+      LOG_FILE="/opt/data-storage/logs/rebalance.log"
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      
+      echo "[$DATE] Storage rebalance started" >> $LOG_FILE
+      
+      # Get all storage disks
+      DISKS=($(ls -d /mnt/data-* 2>/dev/null))
+      
+      if [ ${#DISKS[@]} -lt 2 ]; then
+          echo "[$DATE] Need at least 2 disks for rebalancing" >> $LOG_FILE
+          exit 1
+      fi
+      
+      # Find disk with highest usage
+      MAX_USAGE=0
+      MAX_DISK=""
+      for disk in "${DISKS[@]}"; do
+          USAGE=$(df -h "$disk" | tail -1 | awk '{print $5}' | sed 's/%//')
+          if [ $USAGE -gt $MAX_USAGE ]; then
+              MAX_USAGE=$USAGE
+              MAX_DISK=$disk
+          fi
+      done
+      
+      echo "[$DATE] Highest usage disk: $MAX_DISK ($MAX_USAGE%)" >> $LOG_FILE
+      
+      # Find disk with lowest usage
+      MIN_USAGE=100
+      MIN_DISK=""
+      for disk in "${DISKS[@]}"; do
+          USAGE=$(df -h "$disk" | tail -1 | awk '{print $5}' | sed 's/%//')
+          if [ $USAGE -lt $MIN_USAGE ]; then
+              MIN_USAGE=$USAGE
+              MIN_DISK=$disk
+          fi
+      done
+      
+      echo "[$DATE] Lowest usage disk: $MIN_DISK ($MIN_USAGE%)" >> $LOG_FILE
+      
+      # Move files from high usage to low usage disk
+      if [ -d "$MAX_DISK/data" ] && [ -d "$MIN_DISK/data" ]; then
+          # Move recent files (last 30 days)
+          find "$MAX_DISK/data" -type f -mtime -30 -print0 | while IFS= read -r -d '' file; do
+              rel_path="${file#$MAX_DISK/data/}"
+              target_dir="$MIN_DISK/data/$(dirname "$rel_path")"
+              
+              mkdir -p "$target_dir"
+              mv "$file" "$target_dir/"
+              echo "[$DATE] Moved: $rel_path from $MAX_DISK to $MIN_DISK" >> $LOG_FILE
+          done
+          
+          echo "[$DATE] Rebalance completed" >> $LOG_FILE
+      fi
+    dest: /opt/data-storage/rebalance-storage.sh
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+    mode: '0755'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Setup enhanced cron job for storage monitoring
+  cron:
+    name: "Storage Monitoring with Alerts"
+    job: "/opt/data-storage/monitor-disks.sh"
+    minute: "*/10"
+    user: "{{ app_user | default('admin') }}"
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Create systemd service for data storage (optional)
+  copy:
+    content: |
+      [Unit]
+      Description=Data Storage Service
+      After=network.target
+      
+      [Service]
+      Type=simple
+      User={{ app_user | default('admin') }}
+      WorkingDirectory=/opt/data-storage
+      ExecStart=/usr/bin/node /opt/data-storage/index.js
+      Restart=on-failure
+      EnvironmentFile=/opt/data-storage/config.env
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/data-storage.service
+    owner: root
+    group: root
+    mode: '0644'
+  when: data_storage_enabled | default(false)
+  become: yes
+
+- name: Enable data storage service (optional)
+  systemd:
+    name: data-storage
+    enabled: yes
+    daemon_reload: yes
+  when: data_storage_enabled | default(false)
+  become: yes
+  ignore_errors: yes
+
+- name: Display storage configuration
+  debug:
+    msg: |
+      Data Storage Configuration:
+      - Enabled: {{ data_storage_enabled | default(false) }}
+      - Disks: {{ storage_disks | default([]) | length }}
+      - Compression: {{ compression_enabled | default(false) }}
+      - Encryption: {{ encryption_enabled | default(false) }}
+      - Version Control: {{ version_control_enabled | default(false) }}
+      - Audit Logging: {{ audit_log_enabled | default(false) }}
+  when: data_storage_enabled | default(false)

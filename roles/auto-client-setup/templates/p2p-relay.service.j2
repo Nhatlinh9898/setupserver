@@ -1,0 +1,20 @@
+[Unit]
+Description=P2P Relay Service (GunDB) - {{ commercial_app_name | default('commercial-app') }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ app_user | default('admin') }}
+Group={{ app_user | default('admin') }}
+WorkingDirectory={{ commercial_app_path | default('/opt/commercial-app') }}
+Environment="NODE_ENV={{ node_env | default('production') }}"
+EnvironmentFile={{ commercial_app_path | default('/opt/commercial-app') }}/.env
+ExecStart=/usr/bin/node {{ commercial_app_path | default('/opt/commercial-app') }}/dist/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=p2p-relay
+
+[Install]
+WantedBy=multi-user.target

@@ -15,12 +15,26 @@
   roles:
     - database
 
+- name: Setup Data Storage
+  hosts: allservers
+  become: yes
+  roles:
+    - data-storage
+  when: data_storage_enabled | default(false)
+
 - name: Deploy Application from Git
   hosts: appservers
   become: yes
   roles:
     - deploy
   when: deploy_method | default('git') == 'git'
+
+- name: Prisma Integration
+  hosts: appservers
+  become: yes
+  roles:
+    - prisma-integration
+  when: prisma_integration_enabled | default(false)
 
 - name: Deploy Application from Local
   hosts: appservers
@@ -95,3 +109,39 @@
     - ai-monitoring
     - ai-healing
     - ai-assistant
+
+- name: Setup Ray Cluster (Distributed Computing)
+  hosts: allservers
+  become: yes
+  roles:
+    - ray-cluster
+  when: install_ray_cluster | default(false)
+
+- name: Setup GPU API Service
+  hosts: gpuservers
+  become: yes
+  roles:
+    - cuda
+    - gpu-api-service
+  when: install_gpu_api_service | default(false)
+
+- name: Setup Federated Learning (Training phân tán)
+  hosts: allservers
+  become: yes
+  roles:
+    - federated-learning
+  when: install_federated_learning | default(false)
+
+- name: Setup Mesh Network (P2P VPN)
+  hosts: allservers
+  become: yes
+  roles:
+    - mesh-network
+  when: install_mesh_network | default(false)
+
+- name: Setup Auto Client Setup API (Tự động cấu hình cho user)
+  hosts: allservers
+  become: yes
+  roles:
+    - auto-client-setup
+  when: install_auto_client_setup | default(false)

@@ -1,0 +1,396 @@
+// Prisma Schema cho Data Processing Server
+// Hỗ trợ: Xử lý data lớn, phân loại, xác thực, mã hóa ID, nén data
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION - Xác thực người dùng
+// ============================================
+
+model User {
+  id                String    @id @default(cuid())
+  encryptedId       String    @unique  // ID mã hóa để cung cấp cho app
+  username          String    @unique
+  email             String?   @unique
+  passwordHash      String    // Hash password (bcrypt/argon2)
+  role              UserRole  @default(USER)
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  sessions          Session[]
+  dataItems         DataItem[]
+  dataCategories    DataCategory[]
+  storageAllocations StorageAllocation[]
+  auditLogs         AuditLog[]
+
+  @@index([encryptedId])
+  @@index([username])
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  MODERATOR
+  API_USER
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ============================================
+// DATA CLASSIFICATION - Phân loại nội dung
+// ============================================
+
+model DataCategory {
+  id            String   @id @default(cuid())
+  encryptedId   String   @unique  // ID mã hóa
+  name          String   @unique
+  description   String?
+  parentId      String?
+  level         Int      @default(0)  // Level trong hierarchy
+  sortOrder     Int      @default(0)
+  color         String?  // Màu hiển thị
+  icon          String?  // Icon
+  isActive      Boolean  @default(true)
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  parent        DataCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children      DataCategory[] @relation("CategoryHierarchy")
+  creator       User           @relation(fields: [createdBy], references: [id])
+  dataItems     DataItem[]
+
+  @@index([encryptedId])
+  @@index([parentId])
+  @@index([level])
+}
+
+model DataItem {
+  id              String        @id @default(cuid())
+  encryptedId     String        @unique  // ID mã hóa để cung cấp cho app
+  title           String
+  description     String?
+  content         String?       @db.Text
+  contentType     ContentType
+  fileSize        BigInt?       @default(0)  // Kích thước file (bytes)
+  originalSize    BigInt?       @default(0)  // Kích thước gốc (trước nén)
+  compressedSize  BigInt?       @default(0)  // Kích thước sau nén
+  compressionRatio Float?       @default(0)  // Tỷ lệ nén (0-1)
+  
+  // Storage
+  storagePath     String        // Đường dẫn lưu trữ trên server
+  storageType     StorageType   @default(LOCAL)
+  diskId          String?       // ID của ổ cứng lưu trữ
+  
+  // Classification
+  categoryId      String
+  tags            String[]      // Tags để phân loại
+  metadata        Json?         // Metadata bổ sung
+  
+  // Processing
+  processingStatus ProcessingStatus @default(PENDING)
+  processingStartedAt DateTime?
+  processingCompletedAt DateTime?
+  processingError  String?
+  
+  // Security
+  isEncrypted     Boolean       @default(false)
+  encryptionKey   String?       // Key mã hóa (encrypted)
+  accessLevel     AccessLevel   @default(PUBLIC)
+  
+  // Lifecycle
+  isDeleted       Boolean       @default(false)
+  deletedAt       DateTime?
+  expiresAt       DateTime?     // Hết hạn tự động xóa
+  
+  // Ownership
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  category        DataCategory  @relation(fields: [categoryId], references: [id])
+  creator         User          @relation(fields: [createdBy], references: [id])
+  versions        DataVersion[]
+  accessLogs      DataAccessLog[]
+
+  @@index([encryptedId])
+  @@index([categoryId])
+  @@index([contentType])
+  @@index([processingStatus])
+  @@index([storageType])
+  @@index([diskId])
+  @@index([accessLevel])
+  @@index([createdAt])
+  @@index([tags])
+}
+
+enum ContentType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  ARCHIVE
+  DATABASE
+  CODE
+  BINARY
+  OTHER
+}
+
+enum StorageType {
+  LOCAL           // Local disk
+  NETWORK         // Network storage (NFS/SMB)
+  CLOUD           // Cloud storage (S3/GCS)
+  BACKUP          // Backup storage
+  ARCHIVE         // Archive storage (cold storage)
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  ARCHIVED
+}
+
+enum AccessLevel {
+  PUBLIC
+  INTERNAL
+  PRIVATE
+  RESTRICTED
+  CONFIDENTIAL
+}
+
+// ============================================
+// DATA VERSIONING - Version control cho data
+// ============================================
+
+model DataVersion {
+  id              String   @id @default(cuid())
+  dataItemId      String
+  versionNumber   Int
+  storagePath     String
+  fileSize        BigInt
+  checksum        String   // SHA-256 checksum
+  changeNote      String?
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  dataItem        DataItem @relation(fields: [dataItemId], references: [id], onDelete: Cascade)
+
+  @@unique([dataItemId, versionNumber])
+  @@index([dataItemId])
+}
+
+// ============================================
+// STORAGE MANAGEMENT - Quản lý ổ cứng server
+// ============================================
+
+model StorageDisk {
+  id              String   @id @default(cuid())
+  encryptedId     String   @unique
+  name            String   @unique
+  mountPoint      String   // /mnt/data1, /mnt/data2, v.v.
+  devicePath      String   // /dev/sdb1, /dev/nvme0n1p1, v.v.
+  diskType        DiskType
+  totalCapacity   BigInt   // Tổng dung lượng (bytes)
+  usedCapacity    BigInt   @default(0)
+  availableCapacity BigInt
+  isPrimary       Boolean  @default(false)
+  isHotSwap       Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  healthStatus    HealthStatus @default(HEALTHY)
+  lastHealthCheck DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  allocations     StorageAllocation[]
+
+  @@index([encryptedId])
+  @@index([mountPoint])
+  @@index([isActive])
+}
+
+enum DiskType {
+  HDD
+  SSD
+  NVME
+  RAID
+  NETWORK
+  CLOUD
+}
+
+enum HealthStatus {
+  HEALTHY
+  WARNING
+  CRITICAL
+  FAILED
+  OFFLINE
+}
+
+model StorageAllocation {
+  id              String   @id @default(cuid())
+  userId          String
+  diskId          String
+  allocatedCapacity BigInt  @default(0)
+  usedCapacity    BigInt   @default(0)
+  quotaLimit      BigInt?  // Giới hạn quota
+  priority        Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disk            StorageDisk @relation(fields: [diskId], references: [id])
+
+  @@unique([userId, diskId])
+  @@index([userId])
+  @@index([diskId])
+}
+
+// ============================================
+// DATA PROCESSING - Xử lý data (nén, mã hóa)
+// ============================================
+
+model DataProcessingTask {
+  id              String   @id @default(cuid())
+  encryptedId     String   @unique
+  taskType        TaskType
+  dataItemId      String?
+  inputPath       String
+  outputPath      String?
+  status          ProcessingStatus @default(PENDING)
+  progress        Float    @default(0)  // 0-100
+  
+  // Compression
+  compressionAlgorithm String?  // gzip, lz4, zstd, v.v.
+  compressionLevel    Int?     @default(6)
+  
+  // Encryption
+  encryptionAlgorithm  String?  // AES-256-GCM, ChaCha20-Poly1305
+  encryptionKey        String?
+  
+  // Performance
+  startedAt      DateTime?
+  completedAt    DateTime?
+  durationMs     BigInt?
+  
+  // Error handling
+  errorMessage   String?
+  retryCount     Int      @default(0)
+  maxRetries     Int      @default(3)
+  
+  // Metadata
+  metadata       Json?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([encryptedId])
+  @@index([taskType])
+  @@index([status])
+  @@index([dataItemId])
+}
+
+enum TaskType {
+  COMPRESS
+  DECOMPRESS
+  ENCRYPT
+  DECRYPT
+  CLASSIFY
+  TRANSFORM
+  VALIDATE
+  BACKUP
+  RESTORE
+  MIGRATE
+}
+
+// ============================================
+// AUDIT & LOGGING - Theo dõi hoạt động
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String
+  changes     Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model DataAccessLog {
+  id          String   @id @default(cuid())
+  dataItemId  String
+  userId      String?
+  action      AccessAction
+  ipAddress   String?
+  userAgent   String?
+  success     Boolean  @default(true)
+  errorMessage String?
+  createdAt   DateTime @default(now())
+
+  dataItem    DataItem @relation(fields: [dataItemId], references: [id], onDelete: Cascade)
+
+  @@index([dataItemId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum AccessAction {
+  READ
+  WRITE
+  DELETE
+  DOWNLOAD
+  UPLOAD
+  SHARE
+  EXPORT
+}
+
+// ============================================
+// SYSTEM CONFIGURATION - Cấu hình hệ thống
+// ============================================
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  category    String?
+  isPublic    Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+  @@index([category])
+}

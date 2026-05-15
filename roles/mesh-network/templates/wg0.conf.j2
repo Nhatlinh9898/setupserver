@@ -1,0 +1,12 @@
+[Interface]
+PrivateKey = {{ wg_private_key.stdout }}
+Address = {{ mesh_wireguard_address | default('10.0.0.1/24') }}
+ListenPort = {{ mesh_wireguard_port | default(51820) }}
+
+{% for peer in mesh_peers | default([]) %}
+[Peer]
+PublicKey = {{ peer.public_key }}
+Endpoint = {{ peer.endpoint }}:{{ peer.port | default(51820) }}
+AllowedIPs = {{ peer.allowed_ips | default('10.0.0.0/24') }}
+PersistentKeepalive = 25
+{% endfor %}
