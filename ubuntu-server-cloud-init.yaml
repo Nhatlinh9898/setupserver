@@ -1,26 +1,25 @@
 #cloud-config
-# Ubuntu Server Automated Installation Configuration
-# File này dùng để cài đặt tự động Ubuntu Server
-# Sử dụng: Đặt file này vào USB boot với tên "user-data" trong thư mục "nocloud"
+# Ubuntu Server cloud-init (user-data)
+# Đặt file này làm "user-data" trong thư mục nocloud trên USB/ISO.
+# THAY mọi CHANGE_ME trước khi dùng. Sai SSH key + tắt password = bị khóa SSH.
 
-# Cấu hình cơ bản
 hostname: server-01
 manage_etc_hosts: true
 timezone: Asia/Ho_Chi_Minh
-locale: vi_VN.UTF-8
+locale: en_US.UTF-8
 
-# Cấu hình người dùng
 users:
   - name: admin
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
-    groups: users,adm
+    groups: [users, adm, sudo]
     lock_passwd: false
-    passwd: "$6$rounds=4096$xyz$your_hashed_password_here"  # Thay bằng password hash thực tế
+    # Tạo hash: mkpasswd -m sha-512 'YourPassword'
+    passwd: "CHANGE_ME_SHA512_HASH"
     ssh_authorized_keys:
-      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... your_public_key_here"  # Thay bằng SSH key của bạn
+      - "CHANGE_ME_SSH_PUBLIC_KEY"
 
-# Cấu hình mạng (DHCP)
+# Mạng DHCP (đổi tên NIC nếu cần: ip link)
 network:
   version: 2
   ethernets:
@@ -28,19 +27,14 @@ network:
       dhcp4: true
       dhcp6: false
 
-# Cấu hình SSH
-ssh:
-  install-server: true
-  allow-pw: false  # Chỉ cho phép SSH key
-  authorized-keys:
-    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... your_public_key_here"
+# Giữ password SSH cho đến khi đã xác nhận key hoạt động
+ssh_pwauth: true
+disable_root: true
 
-# Cấu hình package repository
 package_update: true
 package_upgrade: true
-package_reboot_if_required: true
+package_reboot_if_required: false
 
-# Cài đặt các package cơ bản
 packages:
   - vim
   - curl
@@ -56,57 +50,18 @@ packages:
   - ca-certificates
   - gnupg
   - lsb-release
+  - python3
+  - python3-pip
 
-# Cấu hình firewall
 runcmd:
   - ufw default deny incoming
   - ufw default allow outgoing
-  - ufw allow ssh
+  - ufw allow OpenSSH
   - ufw allow http
   - ufw allow https
   - ufw --force enable
+  - systemctl enable --now fail2ban || true
+  # Sau khi SSH key hoạt động, có thể tắt password:
+  # - sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && systemctl reload ssh
 
-# Cấu hình swap (tùy chọn)
-swap:
-  filename: /swapfile
-  size: 4G  # Kích thước swap 4GB
-  maxsize: 4G
-
-# Cấu hình disk partition (tùy chọn - sử dụng LVM)
-storage:
-  config:
-    - type: disk
-      id: disk0
-      ptable: gpt
-      wipe: superblock
-      grub_device: true
-    - type: partition
-      id: partition0
-      device: disk0
-      size: 512M
-      flag: boot
-    - type: partition
-      id: partition1
-      device: disk0
-      size: -1
-    - type: filesystem
-      id: filesystem0
-      volume: partition0
-      format: vfat
-      label: EFI
-    - type: filesystem
-      id: filesystem1
-      volume: partition1
-      format: ext4
-      label: root
-    - type: mount
-      id: mount0
-      device: filesystem0
-      path: /boot/efi
-    - type: mount
-      id: mount1
-      device: filesystem1
-      path: /
-
-# Script chạy sau khi cài đặt
-final_message: "Ubuntu Server installation completed successfully!"
+final_message: "Ubuntu Server cloud-init completed. Đổi CHANGE_ME và kiểm tra SSH trước khi harden thêm."

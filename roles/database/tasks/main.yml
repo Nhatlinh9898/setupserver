@@ -1,6 +1,13 @@
 ---
 # Database Role - Cài đặt MySQL hoặc PostgreSQL
 
+- name: Cảnh báo nếu mật khẩu MySQL còn CHANGE_ME
+  debug:
+    msg: "CẢNH BÁO: mysql_password vẫn là placeholder CHANGE_ME — hãy đổi trong vars.yml trước production."
+  when:
+    - install_mysql | default(true)
+    - (mysql_password | default('')) is search('CHANGE_ME')
+
 - name: Cài đặt MySQL Server (Ubuntu/Debian)
   apt:
     name:
@@ -9,17 +16,17 @@
       - python3-pymysql
     state: present
     update_cache: yes
-  when: ansible_os_family == "Debian" and install_mysql | default(true)
+  when: ansible_os_family == "Debian" and (install_mysql | default(true))
   notify: restart mysql
 
-- name: Cài đặt MySQL Server (CentOS/RHEL)
+- name: Cài đặt MySQL/MariaDB Server (CentOS/RHEL)
   yum:
     name:
-      - mysql-server
-      - mysql
+      - mariadb-server
+      - mariadb
       - python3-PyMySQL
     state: present
-  when: ansible_os_family == "RedHat" and install_mysql | default(true)
+  when: ansible_os_family == "RedHat" and (install_mysql | default(true))
   notify: restart mysql
 
 - name: Cài đặt PostgreSQL (Ubuntu/Debian)
@@ -30,7 +37,7 @@
       - python3-psycopg2
     state: present
     update_cache: yes
-  when: ansible_os_family == "Debian" and install_postgresql | default(false)
+  when: ansible_os_family == "Debian" and (install_postgresql | default(false))
   notify: restart postgresql
 
 - name: Cài đặt PostgreSQL (CentOS/RHEL)
@@ -40,22 +47,30 @@
       - postgresql-contrib
       - python3-psycopg2
     state: present
-  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
+  when: ansible_os_family == "RedHat" and (install_postgresql | default(false))
   notify: restart postgresql
 
 - name: Khởi tạo PostgreSQL database (CentOS)
-  command: postgresql-setup initdb
+  command: postgresql-setup --initdb
   args:
     creates: /var/lib/pgsql/data/postgresql.conf
-  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
+  when: ansible_os_family == "RedHat" and (install_postgresql | default(false))
   notify: restart postgresql
+  failed_when: false
 
-- name: Enable MySQL service
+- name: Enable MySQL/MariaDB service (Debian)
   service:
     name: mysql
     enabled: yes
     state: started
-  when: install_mysql | default(true)
+  when: ansible_os_family == "Debian" and (install_mysql | default(true))
+
+- name: Enable MariaDB service (RedHat)
+  service:
+    name: mariadb
+    enabled: yes
+    state: started
+  when: ansible_os_family == "RedHat" and (install_mysql | default(true))
 
 - name: Enable PostgreSQL service
   service:
@@ -64,72 +79,87 @@
     state: started
   when: install_postgresql | default(false)
 
-- name: Tạo MySQL database và user
+- name: Tạo MySQL database
   mysql_db:
     name: "{{ mysql_database | default('appdb') }}"
     state: present
-  when: install_mysql | default(true)
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  when: ansible_os_family == "Debian" and (install_mysql | default(true))
   become: yes
 
-- name: Tạo MySQL user
+- name: Tạo MariaDB database (RedHat)
+  mysql_db:
+    name: "{{ mysql_database | default('appdb') }}"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when: ansible_os_family == "RedHat" and (install_mysql | default(true))
+  become: yes
+  failed_when: false
+
+- name: Tạo MySQL user (Debian)
   mysql_user:
     name: "{{ mysql_user | default('appuser') }}"
-    password: "{{ mysql_password | default('password123') }}"
+    password: "{{ mysql_password }}"
     priv: "{{ mysql_database | default('appdb') }}.*:ALL"
+    host: "{{ '%' if (mysql_allow_remote | default(false)) else 'localhost' }}"
     state: present
-  when: install_mysql | default(true)
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+  when:
+    - ansible_os_family == "Debian"
+    - install_mysql | default(true)
+    - mysql_password is defined
+    - (mysql_password | regex_search('CHANGE_ME')) is none
   become: yes
 
-- name: Cấu hình MySQL để chấp nhận kết nối remote
+- name: Cấu hình MySQL bind-address (Debian, chỉ khi cho phép remote)
   template:
     src: mysql.cnf.j2
     dest: /etc/mysql/mysql.conf.d/mysqld.cnf
     backup: yes
-  when: ansible_os_family == "Debian" and install_mysql | default(true)
+  when:
+    - ansible_os_family == "Debian"
+    - install_mysql | default(true)
+    - mysql_allow_remote | default(false)
   notify: restart mysql
 
-- name: Mở port MySQL trên firewall (Ubuntu)
+- name: Mở port MySQL trên firewall (Ubuntu) — chỉ khi remote
   ufw:
     rule: allow
     port: "3306"
     proto: tcp
-  when: ansible_os_family == "Debian" and install_mysql | default(true)
+  when:
+    - ansible_os_family == "Debian"
+    - install_mysql | default(true)
+    - mysql_allow_remote | default(false)
 
-- name: Mở port MySQL trên firewall (CentOS)
+- name: Mở port MySQL trên firewall (CentOS) — chỉ khi remote
   firewalld:
     service: mysql
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat" and install_mysql | default(true)
-  notify: reload firewalld
+    immediate: yes
+  when:
+    - ansible_os_family == "RedHat"
+    - install_mysql | default(true)
+    - mysql_allow_remote | default(false)
 
-- name: Mở port PostgreSQL trên firewall (Ubuntu)
+- name: Mở port PostgreSQL trên firewall (Ubuntu) — chỉ khi remote
   ufw:
     rule: allow
     port: "5432"
     proto: tcp
-  when: ansible_os_family == "Debian" and install_postgresql | default(false)
+  when:
+    - ansible_os_family == "Debian"
+    - install_postgresql | default(false)
+    - mysql_allow_remote | default(false)
 
-- name: Mở port PostgreSQL trên firewall (CentOS)
+- name: Mở port PostgreSQL trên firewall (CentOS) — chỉ khi remote
   firewalld:
     service: postgresql
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat" and install_postgresql | default(false)
-  notify: reload firewalld
-
-handlers:
-  - name: restart mysql
-    service:
-      name: mysql
-      state: restarted
-
-  - name: restart postgresql
-    service:
-      name: postgresql
-      state: restarted
-
-  - name: reload firewalld
-    service:
-      name: firewalld
-      state: reloaded
+    immediate: yes
+  when:
+    - ansible_os_family == "RedHat"
+    - install_postgresql | default(false)
+    - mysql_allow_remote | default(false)
