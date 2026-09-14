@@ -1,0 +1,12 @@
+---
+# Handlers for mesh-network (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart wireguard
+  systemd:
+    name: wg-quick@wg0
+    state: restarted
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded

@@ -350,3 +350,11 @@ AI Security Response là nhiệm vụ chính của AI trong hệ thống, đư�
 - Học từ các incident để cải thiện
 
 Đảm bảo cấu hình đúng và test kỹ trước khi deploy production.
+
+
+## Security harden notes (fail/warn fix)
+
+- `ai_security_response_auto_enabled` defaults to **false** — keep it false unless you have vaulted config and a real `ai_security_response_admin_ip` CIDR (never `0.0.0.0/0`).
+- Destructive actions use argv lists (no `shell=True` with untrusted input) and an action whitelist.
+- The systemd unit runs as **root** because iptables/ufw/fail2ban need privileges; prefer a dedicated sudoers wrapper in production.
+- Installing this role does **not** open UFW 22/80/443 unless `ai_security_response_open_firewall: true`.

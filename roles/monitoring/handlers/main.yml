@@ -1,0 +1,26 @@
+---
+# Handlers for monitoring (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart prometheus
+  systemd:
+    name: prometheus
+    state: restarted
+
+- name: restart node_exporter
+  systemd:
+    name: node_exporter
+    state: restarted
+
+- name: restart grafana
+  systemd:
+    name: grafana-server
+    state: restarted
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded

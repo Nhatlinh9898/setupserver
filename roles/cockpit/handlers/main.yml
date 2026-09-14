@@ -1,0 +1,12 @@
+---
+# Handlers for cockpit (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart cockpit
+  systemd:
+    name: cockpit.socket
+    state: restarted
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded

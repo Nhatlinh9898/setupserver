@@ -125,21 +125,3 @@
     state: enabled
   when: ansible_os_family == "RedHat" and (federated_node_type == "server" or federated_node_type is not defined)
   notify: reload firewalld
-
-handlers:
-  - name: restart fl-server
-    systemd:
-      name: fl-server
-      state: restarted
-      daemon_reload: yes
-
-  - name: restart fl-client
-    systemd:
-      name: fl-client
-      state: restarted
-      daemon_reload: yes
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

@@ -1,0 +1,10 @@
+---
+# Mesh network defaults — opt-in via playbook/vars
+mesh_network_type: "wireguard"  # wireguard | tailscale
+mesh_node_name: "{{ inventory_hostname }}"
+mesh_wireguard_port: 51820
+mesh_wireguard_address: "10.0.0.1/24"
+mesh_peers: []
+# Prefer env file over CLI for Tailscale auth key (mode 0600)
+tailscale_auth_key: ""
+tailscale_authkey_file: "/etc/tailscale/authkey"

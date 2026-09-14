@@ -1,3 +1,5 @@
+> **Security note:** `project-config.yml` **overrides** `vars.yml`. Review every flag and replace all `CHANGE_ME*` values before `ansible-playbook ... -e @project-config.yml`. Dangerous AI/ops flags are now default **false** in the hardened template.
+
 # Hướng dẫn Deploy AmazeBid
 
 ## Tổng quan

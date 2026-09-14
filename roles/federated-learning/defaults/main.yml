@@ -1,0 +1,3 @@
+---
+federated_bind_host: "127.0.0.1"
+federated_server_port: 8080

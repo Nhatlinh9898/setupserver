@@ -48,12 +48,25 @@
                   base_url=f"http://{OLLAMA_HOST}"
               )
 
-          def execute_command(self, command):
-              """Thực hiện lệnh shell và trả về kết quả"""
+          # Whitelist — ChatOps must not systemctl arbitrary units
+          ALLOWED_SYSTEMCTL_ACTIONS = frozenset({"status", "start", "stop", "restart", "reload", "is-active", "is-enabled"})
+          ALLOWED_SERVICES = frozenset({
+              "nginx", "apache2", "httpd", "mysql", "mariadb", "postgresql",
+              "redis", "redis-server", "docker", "fail2ban", "ufw",
+              "prometheus", "grafana-server", "node_exporter",
+              "ollama", "ai-chatops", "ai-monitoring", "ai-healing",
+              "ai-security-response", "ssh", "sshd", "cron", "rsyslog"
+          })
+          SERVICE_NAME_RE = __import__("re").compile(r"^[a-zA-Z0-9@_.\\-]{1,64}$")
+
+          def execute_command(self, argv):
+              """Run fixed argv list only (no shell=True)."""
               try:
+                  if isinstance(argv, str):
+                      return {"success": False, "stdout": "", "stderr": "shell strings rejected; pass argv list"}
                   result = subprocess.run(
-                      command,
-                      shell=True,
+                      argv,
+                      shell=False,
                       capture_output=True,
                       text=True,
                       timeout=30
@@ -73,32 +86,43 @@
           def get_system_status(self):
               """Lấy trạng thái hệ thống"""
               status = {}
-              
-              # CPU
-              cpu = self.execute_command("top -bn1 | grep 'Cpu(s)'")
-              status["cpu"] = cpu["stdout"].strip()
-              
-              # Memory
-              mem = self.execute_command("free -h")
+              cpu = self.execute_command(["top", "-bn1"])
+              status["cpu"] = "\n".join(
+                  ln for ln in cpu["stdout"].splitlines() if "Cpu(s)" in ln or "CPU:" in ln
+              ).strip() or cpu["stdout"][:200]
+              mem = self.execute_command(["free", "-h"])
               status["memory"] = mem["stdout"].strip()
-              
-              # Disk
-              disk = self.execute_command("df -h")
+              disk = self.execute_command(["df", "-h"])
               status["disk"] = disk["stdout"].strip()
-              
-              # Services
-              services = self.execute_command("systemctl list-units --type=service --state=running")
+              services = self.execute_command(
+                  ["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"]
+              )
               status["services"] = services["stdout"].strip()
-              
               return status
 
           def manage_service(self, action, service):
-              """Quản lý services (start, stop, restart)"""
-              return self.execute_command(f"systemctl {action} {service}")
+              """Quản lý services — whitelisted action + service only"""
+              action = (action or "").strip().lower()
+              service = (service or "").strip()
+              # strip .service suffix for allowlist check
+              base = service[:-8] if service.endswith(".service") else service
+              if action not in self.ALLOWED_SYSTEMCTL_ACTIONS:
+                  return {"success": False, "stdout": "", "stderr": f"action not allowed: {action}"}
+              if base not in self.ALLOWED_SERVICES or not self.SERVICE_NAME_RE.match(service):
+                  return {"success": False, "stdout": "", "stderr": f"service not in whitelist: {service}"}
+              return self.execute_command(["systemctl", action, service])
 
           def check_logs(self, service, lines=50):
-              """Kiểm tra logs của service"""
-              return self.execute_command(f"journalctl -u {service} -n {lines} --no-pager")
+              """Kiểm tra logs — whitelisted service only"""
+              service = (service or "").strip()
+              base = service[:-8] if service.endswith(".service") else service
+              if base not in self.ALLOWED_SERVICES or not self.SERVICE_NAME_RE.match(service):
+                  return {"success": False, "stdout": "", "stderr": f"service not in whitelist: {service}"}
+              try:
+                  n = max(1, min(int(lines), 200))
+              except Exception:
+                  n = 50
+              return self.execute_command(["journalctl", "-u", service, "-n", str(n), "--no-pager"])
 
           def get_ai_response(self, query, context=""):
               """Lấy phản hồi từ AI"""

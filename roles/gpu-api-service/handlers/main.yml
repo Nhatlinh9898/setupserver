@@ -1,0 +1,13 @@
+---
+# Handlers for gpu-api-service (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart gpu-api
+  systemd:
+    name: gpu-api
+    state: restarted
+    daemon_reload: yes
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded

@@ -18,7 +18,7 @@
 
 - name: Pull Portainer image
   docker_image:
-    name: portainer/portainer-ce:{{ portainer_version | default('latest') }}
+    name: portainer/portainer-ce:{{ portainer_version | default('2.21.4') }}
     source: pull
     state: present
 
@@ -40,19 +40,23 @@
     state: present
   register: portainer_result
 
-- name: Mở port Portainer trên firewall (Ubuntu)
+- name: Mở port Portainer trên firewall (Ubuntu) — only if portainer_open_firewall
   ufw:
     rule: allow
     port: "9443"
     proto: tcp
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - portainer_open_firewall | default(false)
 
-- name: Mở port Portainer trên firewall (CentOS)
+- name: Mở port Portainer trên firewall (CentOS) — only if portainer_open_firewall
   firewalld:
     port: 9443/tcp
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat"
+  when:
+    - ansible_os_family == "RedHat"
+    - portainer_open_firewall | default(false)
   notify: reload firewalld
 
 - name: Mở port Portainer HTTP trên firewall (Ubuntu)
@@ -60,18 +64,25 @@
     rule: allow
     port: "9000"
     proto: tcp
-  when: ansible_os_family == "Debian" and portainer_http_enabled | default(false)
+  when:
+    - ansible_os_family == "Debian"
+    - portainer_http_enabled | default(false)
+    - portainer_open_firewall | default(false)
 
 - name: Mở port Portainer HTTP trên firewall (CentOS)
   firewalld:
     port: 9000/tcp
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat" and portainer_http_enabled | default(false)
+  when:
+    - ansible_os_family == "RedHat"
+    - portainer_http_enabled | default(false)
+    - portainer_open_firewall | default(false)
   notify: reload firewalld
 
 - name: Đợi Portainer start
   wait_for:
+    host: "{{ portainer_bind_address | default('127.0.0.1') }}"
     port: 9443
     delay: 10
     timeout: 120
@@ -84,9 +95,3 @@
       - "Username: admin"
       - "Password: Đặt password khi truy cập lần đầu"
       - "Hoặc HTTP (nếu enabled): http://{{ ansible_default_ipv4.address }}:9000"
-
-handlers:
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

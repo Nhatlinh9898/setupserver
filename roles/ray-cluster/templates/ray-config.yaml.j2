@@ -37,5 +37,5 @@ storage:
 
 # Dashboard
 dashboard:
-  host: 0.0.0.0
+  host: {{ ray_dashboard_host | default('127.0.0.1') }}
   port: {{ ray_dashboard_port | default(8265) }}

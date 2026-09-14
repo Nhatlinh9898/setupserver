@@ -1,0 +1,5 @@
+---
+portainer_version: "2.21.4"  # pin — avoid :latest
+portainer_http_enabled: false
+portainer_open_firewall: false
+portainer_bind_address: "127.0.0.1"

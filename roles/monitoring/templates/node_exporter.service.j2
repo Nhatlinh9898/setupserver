@@ -8,6 +8,7 @@ User=prometheus
 Group=prometheus
 Type=simple
 ExecStart=/usr/local/bin/node_exporter \
+    --web.listen-address={{ node_exporter_bind_address | default('127.0.0.1') }}:9100 \
     --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)
 
 Restart=always

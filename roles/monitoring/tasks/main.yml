@@ -1,5 +1,17 @@
 ---
-# Monitoring Role - Cài đặt Grafana + Prometheus + Node Exporter
+# Monitoring Role - Grafana + Prometheus + Node Exporter (bind 127.0.0.1 by default)
+
+- name: Fail if Grafana admin password is weak / unset
+  fail:
+    msg: >-
+      Set grafana_admin_password to a strong value (not 'admin', 'password', or CHANGE_ME*).
+      Services bind to 127.0.0.1 by default; set monitoring_public_access=true only
+      behind a reverse proxy with a restricted firewall CIDR.
+  when: >
+    (grafana_admin_password | default('CHANGE_ME_GRAFANA_PASSWORD') | length) < 12
+    or (grafana_admin_password | default('')) in ['admin', 'password', 'Admin', 'Password']
+    or (grafana_admin_password | default('') | regex_search('(?i)change[_-]?me'))
+
 
 # Cài đặt Prometheus Node Exporter (để collect metrics)
 - name: Tạo user cho Prometheus
@@ -120,16 +132,31 @@
     daemon_reload: yes
 
 # Cài đặt Grafana
-- name: Thêm Grafana repository key (Ubuntu/Debian)
-  apt_key:
-    url: https://packages.grafana.com/gpg.key
-    state: present
+- name: Ensure keyrings directory exists (Grafana)
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
   when: ansible_os_family == "Debian"
 
-- name: Thêm Grafana repository (Ubuntu/Debian)
+- name: Download Grafana signing key (signed-by)
+  get_url:
+    url: https://packages.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: '0644'
+  when: ansible_os_family == "Debian"
+
+- name: Dearmor Grafana key
+  shell: gpg --dearmor < /etc/apt/keyrings/grafana.asc > /etc/apt/keyrings/grafana.gpg
+  args:
+    creates: /etc/apt/keyrings/grafana.gpg
+  when: ansible_os_family == "Debian"
+
+- name: Thêm Grafana repository (Ubuntu/Debian, signed-by)
   apt_repository:
-    repo: "deb https://packages.grafana.com/oss/deb stable main"
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://packages.grafana.com/oss/deb stable main"
     state: present
+    filename: grafana
   when: ansible_os_family == "Debian"
 
 - name: Cài đặt Grafana (Ubuntu/Debian)
@@ -163,7 +190,7 @@
     enabled: yes
     state: started
 
-- name: Mở port Prometheus trên firewall (Ubuntu)
+- name: Mở port Prometheus trên firewall (Ubuntu) — only if monitoring_public_access
   ufw:
     rule: allow
     port: "{{ item }}"
@@ -171,9 +198,11 @@
   loop:
     - "9090"
     - "9100"
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - monitoring_public_access | default(false)
 
-- name: Mở port Prometheus trên firewall (CentOS)
+- name: Mở port Prometheus trên firewall (CentOS) — only if monitoring_public_access
   firewalld:
     port: "{{ item }}/tcp"
     permanent: yes
@@ -181,26 +210,33 @@
   loop:
     - "9090"
     - "9100"
-  when: ansible_os_family == "RedHat"
+  when:
+    - ansible_os_family == "RedHat"
+    - monitoring_public_access | default(false)
   notify: reload firewalld
 
-- name: Mở port Grafana trên firewall (Ubuntu)
+- name: Mở port Grafana trên firewall (Ubuntu) — only if monitoring_public_access
   ufw:
     rule: allow
     port: "3000"
     proto: tcp
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - monitoring_public_access | default(false)
 
-- name: Mở port Grafana trên firewall (CentOS)
+- name: Mở port Grafana trên firewall (CentOS) — only if monitoring_public_access
   firewalld:
     port: 3000/tcp
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat"
+  when:
+    - ansible_os_family == "RedHat"
+    - monitoring_public_access | default(false)
   notify: reload firewalld
 
 - name: Đợi Grafana start
   wait_for:
+    host: "{{ grafana_bind_address | default('127.0.0.1') }}"
     port: 3000
     delay: 5
     timeout: 60
@@ -210,35 +246,10 @@
     name: Prometheus
     grafana_url: "http://localhost:3000"
     grafana_user: "{{ grafana_admin_user | default('admin') }}"
-    grafana_password: "{{ grafana_admin_password | default('admin') }}"
+    grafana_password: "{{ grafana_admin_password }}"
     org_id: "1"
     ds_type: "prometheus"
     ds_url: "http://localhost:9090"
     state: present
   when: grafana_config_datasource | default(true)
   ignore_errors: yes
-
-handlers:
-  - name: restart prometheus
-    systemd:
-      name: prometheus
-      state: restarted
-
-  - name: restart node_exporter
-    systemd:
-      name: node_exporter
-      state: restarted
-
-  - name: restart grafana
-    systemd:
-      name: grafana-server
-      state: restarted
-
-  - name: reload systemd
-    systemd:
-      daemon_reload: yes
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

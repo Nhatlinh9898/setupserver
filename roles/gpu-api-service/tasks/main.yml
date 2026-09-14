@@ -36,7 +36,7 @@
       - torch
       - torchvision
       - torchaudio
-      --index-url https://download.pytorch.org/whl/cu{{ cuda_version_short | default('121') }}
+    extra_args: \"--index-url https://download.pytorch.org/whl/cu{{ cuda_version_short | default('121') }}\"
     state: present
     executable: pip3
   when: nvidia_gpu.rc == 0
@@ -146,15 +146,3 @@
     owner: gpuapi
     group: gpuapi
   when: nvidia_gpu.rc == 0
-
-handlers:
-  - name: restart gpu-api
-    systemd:
-      name: gpu-api
-      state: restarted
-      daemon_reload: yes
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

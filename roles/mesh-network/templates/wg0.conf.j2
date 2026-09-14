@@ -1,5 +1,5 @@
 [Interface]
-PrivateKey = {{ wg_private_key.stdout }}
+PrivateKey = {{ wg_private_key }}
 Address = {{ mesh_wireguard_address | default('10.0.0.1/24') }}
 ListenPort = {{ mesh_wireguard_port | default(51820) }}
 

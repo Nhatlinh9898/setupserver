@@ -12,7 +12,7 @@ ExecStart=/usr/local/bin/prometheus \
     --storage.tsdb.path /var/lib/prometheus/ \
     --web.console.templates=/etc/prometheus/consoles \
     --web.console.libraries=/etc/prometheus/console_libraries \
-    --web.listen-address=0.0.0.0:9090
+    --web.listen-address={{ prometheus_bind_address | default('127.0.0.1') }}:9090
 
 Restart=always
 RestartSec=5

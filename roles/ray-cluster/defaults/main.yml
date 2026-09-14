@@ -1,0 +1,4 @@
+---
+ray_dashboard_host: "127.0.0.1"
+ray_head_port: 6379
+ray_dashboard_port: 8265

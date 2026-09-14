@@ -155,27 +155,3 @@
       notify: restart ray services
 
   when: install_cuda | default(false)
-
-handlers:
-  - name: restart ray-head
-    systemd:
-      name: ray-head
-      state: restarted
-      daemon_reload: yes
-
-  - name: restart ray-worker
-    systemd:
-      name: ray-worker
-      state: restarted
-      daemon_reload: yes
-
-  - name: restart ray services
-    systemd:
-      name: "{{ 'ray-head' if ray_node_type == 'head' or ray_node_type is not defined else 'ray-worker' }}"
-      state: restarted
-      daemon_reload: yes
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded
