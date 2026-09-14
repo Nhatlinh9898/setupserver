@@ -1,28 +1,45 @@
 ---
-# Application Server Role - Cài đặt Docker, Node.js, Python, v.v.
+# Application Server Role - Docker, Node.js, Python, v.v.
 
-- name: Cài đặt Docker dependencies
-  package:
+- name: Cài đặt Docker dependencies (Debian)
+  apt:
     name:
-      - apt-transport-https
       - ca-certificates
       - curl
       - gnupg
       - lsb-release
     state: present
-  when: ansible_os_family == "Debian"
+    update_cache: yes
+  when:
+    - ansible_os_family == "Debian"
+    - install_docker | default(true)
 
-- name: Thêm Docker GPG key (Ubuntu/Debian)
-  apt_key:
-    url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
-    state: present
-  when: ansible_os_family == "Debian"
+- name: Tạo keyrings directory (Debian)
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  when:
+    - ansible_os_family == "Debian"
+    - install_docker | default(true)
 
-- name: Thêm Docker repository (Ubuntu/Debian)
+- name: Thêm Docker GPG key (Debian)
+  get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when:
+    - ansible_os_family == "Debian"
+    - install_docker | default(true)
+
+- name: Thêm Docker repository (Debian)
   apt_repository:
-    repo: "deb https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    repo: "deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
     state: present
-  when: ansible_os_family == "Debian"
+    filename: docker
+  when:
+    - ansible_os_family == "Debian"
+    - install_docker | default(true)
 
 - name: Cài đặt Docker (Ubuntu/Debian)
   apt:
@@ -33,8 +50,19 @@
       - docker-compose-plugin
     state: present
     update_cache: yes
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - install_docker | default(true)
   notify: restart docker
+
+- name: Thêm Docker yum repo (RedHat)
+  get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: '0644'
+  when:
+    - ansible_os_family == "RedHat"
+    - install_docker | default(true)
 
 - name: Cài đặt Docker (CentOS/RHEL)
   yum:
@@ -44,45 +72,41 @@
       - containerd.io
       - docker-compose-plugin
     state: present
-  when: ansible_os_family == "RedHat"
+  when:
+    - ansible_os_family == "RedHat"
+    - install_docker | default(true)
   notify: restart docker
 
-- name: Thêm user admin vào docker group
+- name: Thêm user app vào docker group
   user:
-    name: admin
+    name: "{{ app_user | default('admin') }}"
     groups: docker
     append: yes
+  when: install_docker | default(true)
 
 - name: Enable Docker service
   service:
     name: docker
     enabled: yes
     state: started
+  when: install_docker | default(true)
 
 - name: Cài đặt Node.js (Ubuntu/Debian)
   apt:
-    name: nodejs
+    name:
+      - nodejs
+      - npm
     state: present
     update_cache: yes
-  when: ansible_os_family == "Debian" and install_nodejs | default(false)
+  when: ansible_os_family == "Debian" and (install_nodejs | default(false))
 
 - name: Cài đặt Node.js (CentOS/RHEL)
   yum:
-    name: nodejs
+    name:
+      - nodejs
+      - npm
     state: present
-  when: ansible_os_family == "RedHat" and install_nodejs | default(false)
-
-- name: Cài đặt npm (Ubuntu/Debian)
-  apt:
-    name: npm
-    state: present
-  when: ansible_os_family == "Debian" and install_nodejs | default(false)
-
-- name: Cài đặt npm (CentOS/RHEL)
-  yum:
-    name: npm
-    state: present
-  when: ansible_os_family == "RedHat" and install_nodejs | default(false)
+  when: ansible_os_family == "RedHat" and (install_nodejs | default(false))
 
 - name: Cài đặt Python 3 và pip (Ubuntu/Debian)
   apt:
@@ -104,33 +128,24 @@
 - name: Cài đặt pip packages phổ biến
   pip:
     name:
-      - virtualenv
       - setuptools
       - wheel
     executable: pip3
     state: present
+  failed_when: false
 
 - name: Cài đặt Git
   package:
     name: git
     state: present
 
-- name: Cấu hình Git
-  git_config:
-    name: "{{ item.name }}"
-    value: "{{ item.value }}"
-    scope: global
-  loop:
-    - { name: "user.name", value: "Server Admin" }
-    - { name: "user.email", value: "admin@server.local" }
-
 - name: Tạo directory cho applications
   file:
     path: /opt/apps
     state: directory
     mode: '0755'
-    owner: admin
-    group: admin
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
 
 - name: Cài đặt PM2 (Process Manager cho Node.js)
   npm:
@@ -148,9 +163,4 @@
     name: supervisor
     enabled: yes
     state: started
-
-handlers:
-  - name: restart docker
-    service:
-      name: docker
-      state: restarted
+  failed_when: false

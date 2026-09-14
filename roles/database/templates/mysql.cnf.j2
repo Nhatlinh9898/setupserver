@@ -1,0 +1,12 @@
+# MySQL mysqld config — Ansible role database
+# Chỉ deploy khi mysql_allow_remote=true
+[mysqld]
+pid-file        = /var/run/mysqld/mysqld.pid
+socket          = /var/run/mysqld/mysqld.sock
+datadir         = /var/lib/mysql
+bind-address    = 0.0.0.0
+mysqlx-bind-address = 127.0.0.1
+
+# Bảo mật cơ bản
+local-infile    = 0
+skip-symbolic-links

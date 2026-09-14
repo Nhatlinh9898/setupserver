@@ -1,74 +1,105 @@
-# Quick Start - Deploy AmazeBid
+# Quick Start — CORE Server + Deploy
 
-## Cách nhanh nhất để deploy
+## A. CORE path (zero → base Linux server usable)
 
-### 1. Cấu hình inventory.ini
+Mục tiêu: Nginx/web + runtime (Docker/Python) + MySQL/MariaDB **không** kéo AI/CUDA/mesh.
 
-```ini
-[webservers]
-server-01 ansible_host=YOUR_SERVER_IP ansible_user=admin
+### 1. Chuẩn bị OS (một trong các cách)
+
+```bash
+# Trên máy vừa cài Ubuntu/Rocky:
+sudo bash server-setup.sh
+# Hoặc non-interactive:
+sudo SETUP_NONINTERACTIVE=1 SETUP_INSTALL_DOCKER=y SETUP_INSTALL_NGINX=y bash server-setup.sh
 ```
 
-### 2. Deploy
+Hoặc dùng template cài đặt:
+
+- Ubuntu: `ubuntu-server-cloud-init.yaml` (đổi mọi `CHANGE_ME_*`)
+- Rocky/Alma 9: `centos-kickstart.cfg` (đổi mọi `CHANGE_ME_*`; **không** dùng mirror CentOS 8 EOL)
+
+### 2. Sửa inventory + vars
+
+```bash
+# inventory.ini — thay CHANGE_ME_*_IP
+# vars.yml — đổi mysql_password / postgresql_password (bỏ CHANGE_ME)
+```
+
+All-in-one (app = db cùng máy): đặt `CHANGE_ME_APP_IP` và `CHANGE_ME_DB_IP` cùng một IP.
+
+### 3. Chạy Ansible CORE thôi
+
+```bash
+# Từ máy control (có ansible)
+ansible-galaxy collection install community.mysql community.general  # nếu thiếu module
+ansible-playbook -i inventory.ini playbook.yml --tags core -e @vars.yml
+
+# Hoặc không dùng tags — playbook mặc định chỉ chạy core
+# vì các role extras đã bị gate bằng flag = false
+ansible-playbook -i inventory.ini playbook.yml -e @vars.yml
+```
+
+### 4. Kiểm tra nhanh
+
+```bash
+ansible appservers -i inventory.ini -m ping
+curl -I http://CHANGE_ME_APP_IP/
+ssh admin@CHANGE_ME_APP_IP 'docker --version; systemctl is-active nginx || true'
+```
+
+---
+
+## B. Deploy ứng dụng (tùy chọn — tắt mặc định)
+
+Trong `vars.yml`:
+
+```yaml
+deploy_enabled: true
+deploy_method: git   # hoặc local
+project_path: /opt/apps/my-app
+git_repository: "https://github.com/YOUR_ORG/YOUR_REPO.git"
+git_branch: main
+mysql_password: "your-real-password"
+```
+
+Local code: đặt mã nguồn vào `app-code/` rồi `deploy_method: local`.
+
+```bash
+ansible-playbook -i inventory.ini playbook.yml --tags deploy,dependencies,application -e @vars.yml
+```
+
+---
+
+## C. AmazeBid / extras (ngoài CORE)
+
+Giữ nguyên flow cũ nếu cần:
 
 ```powershell
 .\deploy-amazebid.ps1
 ```
-
-Hoặc dùng Ansible trực tiếp:
 
 ```bash
 ansible-playbook -i inventory.ini playbook.yml -e @project-config.yml
 ```
 
-## Khi có thay đổi code
+Bật extras bằng flag trong `vars.yml` / `project-config.yml`, ví dụ:
 
-```powershell
-# 1. Thay đổi code trong app-code/
-# 2. Deploy
-.\deploy-amazebid.ps1
-```
+- `install_remote_management: true` — Cockpit, Webmin, monitoring, Portainer
+- `install_ai_ml: true`, `install_ai_ops: true`, … — **không** nằm trong CORE
 
-## Rollback nếu có lỗi
-
-```powershell
-.\deploy-amazebid.ps1 -Action rollback
-```
-
-## Xem trạng thái
-
-```powershell
-.\deploy-amazebid.ps1 -Action status
-```
-
-## Các lệnh Ansible hữu ích
+### Lệnh Ansible hữu ích (khi đã bật deploy)
 
 ```bash
-# Chỉ deploy code (không cài dependencies)
-ansible-playbook -i inventory.ini playbook.yml --tags deploy,application -e @project-config.yml
-
-# Chỉ cài dependencies
-ansible-playbook -i inventory.ini playbook.yml --tags dependencies -e @project-config.yml
-
-# Chỉ restart app
-ansible-playbook -i inventory.ini playbook.yml --tags application-restart -e @project-config.yml
-
-# Chỉ chạy migrations
-ansible-playbook -i inventory.ini playbook.yml --tags prisma-migrate -e @project-config.yml
+ansible-playbook -i inventory.ini playbook.yml --tags deploy,application -e @vars.yml
+ansible-playbook -i inventory.ini playbook.yml --tags dependencies -e @vars.yml
+ansible-playbook -i inventory.ini playbook.yml --tags core -e @vars.yml
 ```
 
-## Truy cập ứng dụng
+### Truy cập (sau khi bật service tương ứng)
 
-- **App**: http://YOUR_SERVER_IP:3000
-- **Cockpit**: https://YOUR_SERVER_IP:9090
-- **Grafana**: http://YOUR_SERVER_IP:3000
-- **Portainer**: https://YOUR_SERVER_IP:9443
+- App / Nginx: `http://YOUR_SERVER_IP/`
+- Cockpit (nếu bật remote-mgmt): `https://YOUR_SERVER_IP:9090`
 
-## Lưu ý quan trọng
+⚠️ **Production:** đổi mọi `CHANGE_ME`, không commit secret, test staging trước.
 
-⚠️ **Trước khi deploy production:**
-1. Thay đổi password trong `project-config.yml`
-2. Cập nhật API keys (Firebase, Gemini, Stripe, etc.)
-3. Test trên development server trước
-
-📖 **Xem hướng dẫn chi tiết:** [DEPLOYMENT_GUIDE_AMAZEBID.md](DEPLOYMENT_GUIDE_AMAZEBID.md)
+📖 Chi tiết AmazeBid: [DEPLOYMENT_GUIDE_AMAZEBID.md](DEPLOYMENT_GUIDE_AMAZEBID.md)

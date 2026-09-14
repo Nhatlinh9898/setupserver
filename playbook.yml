@@ -1,23 +1,35 @@
 ---
-# Main Ansible Playbook cho Monolithic App
-# UI + Logic cùng trên một server
+# Main Ansible Playbook — CORE path mặc định: web + app + database
+# Các role AI / extras chỉ chạy khi bật flag tương ứng trong vars.yml
 
-- name: Setup App Servers (Monolithic)
+- name: Setup App Servers (Monolithic) — CORE
   hosts: appservers
   become: yes
+  tags: [core, web, app]
+  vars_files:
+    - vars.yml
   roles:
-    - web
-    - app
+    - role: web
+      tags: [core, web]
+    - role: app
+      tags: [core, app]
 
-- name: Setup Database Servers
+- name: Setup Database Servers — CORE
   hosts: dbservers
   become: yes
+  tags: [core, database]
+  vars_files:
+    - vars.yml
   roles:
-    - database
+    - role: database
+      tags: [core, database]
 
 - name: Setup Data Storage
   hosts: allservers
   become: yes
+  tags: [data-storage]
+  vars_files:
+    - vars.yml
   roles:
     - data-storage
   when: data_storage_enabled | default(false)
@@ -25,13 +37,24 @@
 - name: Deploy Application from Git
   hosts: appservers
   become: yes
+  tags: [deploy]
+  vars_files:
+    - vars.yml
   roles:
     - deploy
-  when: deploy_method | default('git') == 'git'
+  when:
+    - deploy_enabled | default(false)
+    - (deploy_method | default('git')) == 'git'
+    - git_repository is defined
+    - git_repository | length > 0
+    - (git_repository | regex_search('CHANGE_ME')) is none
 
 - name: Prisma Integration
   hosts: appservers
   become: yes
+  tags: [prisma]
+  vars_files:
+    - vars.yml
   roles:
     - prisma-integration
   when: prisma_integration_enabled | default(false)
@@ -39,34 +62,58 @@
 - name: Deploy Application from Local
   hosts: appservers
   become: yes
+  tags: [deploy, deploy-local]
+  vars_files:
+    - vars.yml
   roles:
     - deploy-local
-  when: deploy_method | default('git') == 'local'
+  when:
+    - deploy_enabled | default(false)
+    - (deploy_method | default('git')) == 'local'
 
 - name: Install Dependencies
-  hosts: allservers
+  hosts: appservers
   become: yes
+  tags: [dependencies]
+  vars_files:
+    - vars.yml
   roles:
     - dependencies
+  when:
+    - deploy_enabled | default(false)
+    - project_path is defined
 
 - name: Configure and Start Application
-  hosts: allservers
+  hosts: appservers
   become: yes
+  tags: [application]
+  vars_files:
+    - vars.yml
   roles:
     - application
+  when:
+    - deploy_enabled | default(false)
+    - project_path is defined
 
 - name: Setup Remote Management Tools
   hosts: allservers
   become: yes
+  tags: [remote-mgmt]
+  vars_files:
+    - vars.yml
   roles:
     - cockpit
     - webmin
     - monitoring
     - portainer
+  when: install_remote_management | default(false)
 
 - name: Setup CUDA (GPU Support)
   hosts: allservers
   become: yes
+  tags: [cuda]
+  vars_files:
+    - vars.yml
   roles:
     - cuda
   when: install_cuda | default(false)
@@ -74,45 +121,72 @@
 - name: Setup AI/ML Tools
   hosts: allservers
   become: yes
+  tags: [ai-ml]
+  vars_files:
+    - vars.yml
   roles:
     - ai-ml
+  when: install_ai_ml | default(false)
 
 - name: Setup AI Security
   hosts: allservers
   become: yes
+  tags: [ai-security]
+  vars_files:
+    - vars.yml
   roles:
     - ai-security
+  when: install_ai_security | default(false)
 
-- name: Setup App Hardening (LỚP 2: Rào chắn bảo vệ code/app)
+- name: Setup App Hardening (LỚP 2)
   hosts: allservers
   become: yes
+  tags: [app-hardening]
+  vars_files:
+    - vars.yml
   roles:
     - app-hardening
+  when: install_app_hardening | default(false)
 
-- name: Setup Container Isolation (LỚP 2B: Container Sandbox)
+- name: Setup Container Isolation (LỚP 2B)
   hosts: allservers
   become: yes
+  tags: [container-isolation]
+  vars_files:
+    - vars.yml
   roles:
     - container-isolation
+  when: install_container_isolation | default(false)
 
-- name: Setup AI Security Response (NHIỆM VỤ CHÍNH: SECURITY)
+- name: Setup AI Security Response
   hosts: allservers
   become: yes
+  tags: [ai-security-response]
+  vars_files:
+    - vars.yml
   roles:
     - ai-security-response
+  when: install_ai_security_response | default(false)
 
 - name: Setup AI Ops
   hosts: allservers
   become: yes
+  tags: [ai-ops]
+  vars_files:
+    - vars.yml
   roles:
     - ai-chatops
     - ai-monitoring
     - ai-healing
     - ai-assistant
+  when: install_ai_ops | default(false)
 
 - name: Setup Ray Cluster (Distributed Computing)
   hosts: allservers
   become: yes
+  tags: [ray]
+  vars_files:
+    - vars.yml
   roles:
     - ray-cluster
   when: install_ray_cluster | default(false)
@@ -120,14 +194,20 @@
 - name: Setup GPU API Service
   hosts: gpuservers
   become: yes
+  tags: [gpu-api]
+  vars_files:
+    - vars.yml
   roles:
     - cuda
     - gpu-api-service
   when: install_gpu_api_service | default(false)
 
-- name: Setup Federated Learning (Training phân tán)
+- name: Setup Federated Learning
   hosts: allservers
   become: yes
+  tags: [federated-learning]
+  vars_files:
+    - vars.yml
   roles:
     - federated-learning
   when: install_federated_learning | default(false)
@@ -135,13 +215,19 @@
 - name: Setup Mesh Network (P2P VPN)
   hosts: allservers
   become: yes
+  tags: [mesh]
+  vars_files:
+    - vars.yml
   roles:
     - mesh-network
   when: install_mesh_network | default(false)
 
-- name: Setup Auto Client Setup API (Tự động cấu hình cho user)
+- name: Setup Auto Client Setup API
   hosts: allservers
   become: yes
+  tags: [auto-client]
+  vars_files:
+    - vars.yml
   roles:
     - auto-client-setup
   when: install_auto_client_setup | default(false)
