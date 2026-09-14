@@ -1,0 +1,338 @@
+---
+##############################################################################
+# EXAMPLE SAFE TEMPLATE — THIS FILE OVERRIDES vars.yml WHEN PASSED WITH `-e @project-config.yml`
+##############################################################################
+# Do NOT use this file as-is on a production host.
+# - All dangerous / optional AI-ops / hardening / isolation / storage flags
+#   are forced to `false` here (safe defaults).
+# - Replace every CHANGE_ME before enabling anything.
+# - Prefer `vars.yml` for CORE installs; only pass this file when you
+#   intentionally override CORE with project-specific values you have reviewed.
+# - Duplicate keys were removed (PyYAML keeps the LAST value — that caused
+#   silent mis-deploys before).
+##############################################################################
+
+# Phương pháp deploy: git hoặc local
+deploy_method: "git"  # "git" để clone từ Git, "local" để copy từ local directory
+
+# Thông tin Git Repository (chỉ dùng khi deploy_method = "git")
+git_repository: "https://github.com/CHANGE_ME/CHANGE_ME.git"
+git_branch: "main"
+# git_ssh_private_key: "-----BEGIN OPENSSH PRIVATE KEY-----..."  # Private key cho repo private (nếu cần)
+# git_password: "CHANGE_ME"  # Password cho repo private (không khuyến khích)
+
+# Thông tin Local Code (chỉ dùng khi deploy_method = "local")
+# local_code_path: "./app-code"
+
+# Thông tin Project (Monolithic App - UI + Logic cùng một server)
+app_name: "CHANGE_ME_APP"
+app_user: "admin"
+project_path: "/opt/apps/CHANGE_ME_APP"
+app_port: 3000
+
+app_type: "nodejs"
+app_framework: "express"
+
+use_typescript: true
+use_vite: true
+use_prisma: true
+use_firebase: false
+
+# Environment Variables (placeholders only — never commit real secrets)
+env_vars:
+  NODE_ENV: "production"
+  PORT: "3000"
+  DATABASE_URL: "postgresql://CHANGE_ME_USER:CHANGE_ME_PASSWORD@localhost:5432/CHANGE_ME_DB?schema=public"
+  FIREBASE_API_KEY: "CHANGE_ME"
+  FIREBASE_AUTH_DOMAIN: "CHANGE_ME.firebaseapp.com"
+  FIREBASE_PROJECT_ID: "CHANGE_ME"
+  FIREBASE_STORAGE_BUCKET: "CHANGE_ME.appspot.com"
+  FIREBASE_MESSAGING_SENDER_ID: "CHANGE_ME"
+  FIREBASE_APP_ID: "CHANGE_ME"
+  FIREBASE_SERVICE_ACCOUNT_JSON: "CHANGE_ME"
+  REDIS_URL: "redis://localhost:6379"
+  STRIPE_SECRET_KEY: "CHANGE_ME"
+  STRIPE_PUBLISHABLE_KEY: "CHANGE_ME"
+  JWT_SECRET: "CHANGE_ME_JWT_SECRET"
+  GEMINI_API_KEY: "CHANGE_ME"
+  VITE_APP_URL: "http://localhost:3000"
+  VITE_ADMIN_EMAIL: "CHANGE_ME_ADMIN@example.com"
+  ADMIN_PASSWORD: "CHANGE_ME_STRONG_PASSWORD"
+  MASTER_RECOVERY_KEY: "CHANGE_ME_RECOVERY_KEY"
+  RESEND_API_KEY: "CHANGE_ME"
+  EMAIL_FROM: "CHANGE_ME@example.com"
+  ORT_LOGGING_LEVEL: "4"
+
+node_env: "production"
+node_script: "server.ts"
+node_instances: 1
+node_exec_mode: "fork"
+node_max_memory: "1G"
+npm_build: true
+npm_build_command: "npm run build"
+use_pm2: true
+use_ts_node: false
+
+python_command: "gunicorn"
+python_app_module: "app:app"
+django_settings_module: "myproject.settings"
+django_wsgi_module: "myproject.wsgi:application"
+flask_app_module: "app:app"
+php_version: "8.1"
+domain_name: "CHANGE_ME.example.com"
+rails_env: "production"
+puma_workers: 2
+puma_threads_min: 0
+puma_threads_max: 16
+
+docker_image_name: "my-app"
+docker_image_tag: "latest"
+
+install_mysql: false
+install_postgresql: true
+postgresql_database: "CHANGE_ME_DB"
+postgresql_user: "CHANGE_ME_USER"
+postgresql_password: "CHANGE_ME_PASSWORD"
+
+install_redis: true
+redis_port: 6379
+redis_bind: "127.0.0.1"
+redis_password: ""
+
+prisma_generate: true
+prisma_migrate: true
+prisma_seed: false
+prisma_schema_path: "./prisma/schema.prisma"
+prisma_integration_enabled: false
+prisma_merge_strategy: "extend"
+prisma_auto_generate: false
+prisma_auto_migrate: false
+
+install_apache: false
+create_systemd_service: false
+systemd_command: "./start.sh"
+systemd_env_vars: "NODE_ENV=production"
+
+health_check_enabled: true
+health_check_path: "/health"
+health_check_status: 200
+
+backup_enabled: true
+backup_before_deploy: true
+backup_retention_days: 30
+backup_database: true
+backup_code: true
+backup_path: "/opt/backups/CHANGE_ME_APP"
+
+rollback_enabled: true
+rollback_auto_on_failure: false
+rollback_keep_versions: 5
+
+create_upload_dir: false
+composer_no_dev: true
+bundler_deployment: true
+
+# Restrict SSH; never 0.0.0.0/0 in production overlays
+allow_ssh_ip: "CHANGE_ME_ADMIN_CIDR"
+
+# Cockpit
+cockpit_allow_remote: false
+cockpit_ssl_enabled: true
+cockpit_create_user: false
+cockpit_user: "cockpitadmin"
+cockpit_password: "CHANGE_ME_PASSWORD_HASH"
+
+# Webmin — admin CIDR only (see roles/webmin defaults)
+webmin_install_modules: false
+webmin_allow_cidr: "127.0.0.1"
+webmin_open_firewall: false
+
+# Monitoring — localhost bind + strong password required
+prometheus_version: "2.45.0"
+node_exporter_version: "1.6.0"
+grafana_version: "10.0.0"
+grafana_admin_user: "admin"
+grafana_admin_password: "CHANGE_ME_GRAFANA_PASSWORD"
+grafana_domain: "localhost"
+grafana_bind_address: "127.0.0.1"
+prometheus_bind_address: "127.0.0.1"
+monitoring_public_access: false
+grafana_anonymous_enabled: false
+grafana_org_name: "Main Org."
+grafana_anonymous_role: "Viewer"
+grafana_log_level: "info"
+grafana_config_datasource: true
+
+# Portainer — pin version (not :latest)
+portainer_version: "2.21.4"
+portainer_http_enabled: false
+portainer_open_firewall: false
+
+# AI/ML — all off by default (safe)
+install_ollama: false
+ollama_models: []
+ollama_api_enabled: false
+ollama_api_port: 11434
+install_python_ml: false
+install_python_llm: false
+install_nodejs_ml: false
+install_stable_diffusion: false
+install_text_generation_webui: false
+install_whisper: false
+install_tts: false
+install_rag_tools: false
+
+install_cuda: false
+cuda_version: "12-1"
+nvidia_driver_version: "535"
+install_cudnn: false
+cudnn_url: ""
+install_pytorch_cuda: false
+cuda_version_short: "121"
+
+install_ray_cluster: false
+ray_cluster_name: "default-cluster"
+ray_node_type: "head"
+ray_head_address: "127.0.0.1"
+ray_head_port: 6379
+ray_dashboard_port: 8265
+ray_dashboard_host: "127.0.0.1"
+ray_cpu_resources: 2
+ray_memory_resources: 4
+ray_worker_cpus: 2
+ray_worker_gpus: 0
+ray_worker_memory: 4
+
+install_gpu_api_service: false
+gpu_api_port: 8000
+gpu_api_host: "127.0.0.1"
+gpu_api_memory_limit: "8G"
+gpu_monitor_interval: 60
+gpu_memory_alert_threshold: 90
+
+install_federated_learning: false
+federated_node_type: "server"
+federated_server_address: "127.0.0.1:8080"
+federated_server_port: 8080
+federated_bind_host: "127.0.0.1"
+federated_client_id: 1
+federated_num_rounds: 10
+federated_min_clients: 2
+federated_min_available_clients: 2
+federated_fraction_fit: 1.0
+federated_local_epochs: 5
+federated_batch_size: 32
+federated_learning_install_deps: true
+
+install_mesh_network: false
+mesh_network_type: "wireguard"
+mesh_node_name: "node-1"
+mesh_wireguard_address: "10.0.0.1/24"
+mesh_wireguard_port: 51820
+mesh_peers: []
+mesh_test_peer: "10.0.0.1"
+tailscale_auth_key: ""
+
+install_auto_client_setup: false
+auto_setup_api_port: 9000
+auto_setup_api_host: "127.0.0.1"
+vite_app_url: "http://localhost:3000"
+
+# Commercial app (optional) — off; no duplicate deploy_method/git keys
+install_commercial_app: false
+commercial_app_name: "CHANGE_ME_COMMERCIAL_APP"
+commercial_app_path: "/opt/commercial-app"
+commercial_app_port: 3000
+commercial_deploy_method: "git"
+commercial_git_repository: "https://github.com/CHANGE_ME/CHANGE_ME.git"
+commercial_git_branch: "main"
+local_app_code_path: "./commercial-app-code"
+p2p_relay_enabled: false
+p2p_relay_port: 8765
+socket_io_enabled: false
+socket_io_port: 3001
+mesh_network_enabled: false
+mesh_network_ip: "10.0.0.1"
+database_url: "postgresql://CHANGE_ME_USER:CHANGE_ME_PASSWORD@localhost:5432/CHANGE_ME_DB"
+firebase_api_key: "CHANGE_ME"
+firebase_auth_domain: "CHANGE_ME.firebaseapp.com"
+firebase_project_id: "CHANGE_ME"
+firebase_storage_bucket: "CHANGE_ME.appspot.com"
+firebase_messaging_sender_id: "CHANGE_ME"
+firebase_app_id: "CHANGE_ME"
+install_nginx: true
+jwt_secret: "CHANGE_ME_JWT_SECRET"
+encryption_key: "CHANGE_ME_ENCRYPTION_KEY"
+log_level: "info"
+log_file: "/var/log/commercial-app/app.log"
+
+# AI Ops — all false (safe)
+install_ai_chatops: false
+chatops_service_enabled: false
+chatops_model: "llama2"
+
+install_ai_monitoring: false
+ai_monitoring_enabled: false
+ai_monitoring_model: "llama2"
+ai_monitoring_interval: 300
+
+install_ai_healing: false
+ai_healing_enabled: false
+ai_healing_model: "llama2"
+ai_healing_interval: 60
+ai_healing_auto_enabled: false
+
+install_ai_assistant: false
+ai_assistant_model: "llama2"
+
+# AI Security Response — MUST stay false unless vault + real admin CIDR
+install_ai_security_response: false
+ai_security_response_enabled: false
+ai_security_response_model: "llama2"
+ai_security_response_interval: 30
+ai_security_response_auto_enabled: false
+ai_security_response_admin_ip: "CHANGE_ME_ADMIN_CIDR"
+
+# App Hardening / Container Isolation — off
+install_app_hardening: false
+app_hardening_enabled: false
+app_hardening_immutable: false
+app_hardening_integrity_check: false
+app_hardening_snapshots: false
+app_hardening_max_snapshots: 10
+
+install_container_isolation: false
+container_monitor_enabled: false
+docker_base_image: "python:3.9-slim"
+container_cpu_limit: "1.0"
+container_memory_limit: "512M"
+container_cpu_reservation: "0.5"
+container_memory_reservation: "256M"
+container_subnet: "172.20.0.0/16"
+container_uid: "1000"
+container_gid: "1000"
+
+# Data Storage — off (formatting disks is dangerous)
+data_storage_enabled: false
+storage_subdir: "data"
+storage_disks: []
+storage_allocation_strategy: "round_robin"
+default_disk_for_upload: "primary"
+archive_after_days: 90
+storage_monitoring_enabled: false
+storage_warning_threshold: 80
+storage_critical_threshold: 90
+storage_alert_email: "CHANGE_ME_ADMIN@example.com"
+auto_archive_enabled: false
+auto_archive_threshold: 85
+archive_target_disk: "archive"
+compression_enabled: false
+compression_algorithm: "zstd"
+compression_level: 6
+encryption_enabled: false
+encryption_algorithm: "AES-256-GCM"
+encrypt_at_rest: false
+encrypt_in_transit: false
+auto_classify_enabled: false
+version_control_enabled: false
+audit_log_enabled: false

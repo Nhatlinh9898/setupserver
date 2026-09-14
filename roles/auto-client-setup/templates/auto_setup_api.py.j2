@@ -124,4 +124,4 @@ async def get_app_info():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port={{ auto_setup_api_port | default(9000) }})
+    uvicorn.run(app, host="{{ auto_setup_api_host | default('127.0.0.1') }}", port={{ auto_setup_api_port | default(9000) }})

@@ -1,0 +1,6 @@
+---
+# Webmin — never open to the world by default
+webmin_allow_cidr: "127.0.0.1"  # set to CHANGE_ME admin CIDR e.g. 203.0.113.10/32
+webmin_open_firewall: false     # only open UFW/firewalld when explicitly true
+webmin_install_modules: false
+webmin_ssl_enabled: true

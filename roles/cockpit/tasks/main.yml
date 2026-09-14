@@ -83,14 +83,3 @@
     mode: '0440'
     validate: 'visudo -cf %s'
   when: cockpit_create_user | default(false)
-
-handlers:
-  - name: restart cockpit
-    systemd:
-      name: cockpit.socket
-      state: restarted
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

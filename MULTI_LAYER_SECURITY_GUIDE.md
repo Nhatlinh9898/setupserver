@@ -1,3 +1,5 @@
+> **SAFE DEFAULTS (2026-09):** All AI security / auto-response / hardening flags default **false**. Do not copy older snippets that set `ai_security_response_auto_enabled: true` or use `-e @project-config.yml` without reviewing that file first — it overrides `vars.yml`.
+
 # Hệ thống Bảo mật Nhiều Lớp (Defense in Depth)
 
 ## Tổng quan
@@ -69,10 +71,11 @@ Hệ thống bảo mật được thiết kế theo mô hình **Defense in Depth
 
 ### Cấu hình
 ```yaml
-install_ai_security_response: true
-ai_security_response_enabled: true
+install_ai_security_response: false   # opt-in
+ai_security_response_enabled: false
 ai_security_response_interval: 30
-ai_security_response_auto_enabled: true
+ai_security_response_auto_enabled: false  # MUST stay false unless vault + real admin CIDR
+ai_security_response_admin_ip: "CHANGE_ME_ADMIN_CIDR"
 ```
 
 ### Monitoring

@@ -333,7 +333,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="{{ gpu_api_host | default('127.0.0.1') }}",
         port={{ gpu_api_port | default(8000) }},
         log_level="info"
     )

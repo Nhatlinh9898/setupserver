@@ -1,12 +1,12 @@
 [server]
-http_addr = 0.0.0.0
+http_addr = {{ grafana_bind_address | default('127.0.0.1') }}
 http_port = 3000
 domain = {{ grafana_domain | default('localhost') }}
 root_url = %(protocol)s://%(domain)s:%(http_port)s/
 
 [security]
 admin_user = {{ grafana_admin_user | default('admin') }}
-admin_password = {{ grafana_admin_password | default('admin') }}
+admin_password = {{ grafana_admin_password }}
 disable_gravatar = true
 
 [users]

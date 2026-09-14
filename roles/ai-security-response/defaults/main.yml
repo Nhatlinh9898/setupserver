@@ -25,3 +25,5 @@ ufw_allow_ssh: true
 ufw_allow_http: true
 ufw_allow_https: true
 ufw_allow_app_port: true
+
+ai_security_response_open_firewall: false  # do not open 22/80/443 world-wide

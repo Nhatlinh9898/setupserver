@@ -1,0 +1,7 @@
+---
+# Handlers for portainer (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded

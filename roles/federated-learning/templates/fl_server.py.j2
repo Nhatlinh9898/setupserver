@@ -96,7 +96,7 @@ def start_server():
     
     # Start Flower server
     fl.server.start_server(
-        server_address="0.0.0.0:{{ federated_server_port | default(8080) }}",
+        server_address="{{ federated_bind_host | default('127.0.0.1') }}:{{ federated_server_port | default(8080) }}",
         config=fl.server.ServerConfig(num_rounds={{ federated_num_rounds | default(10) }}),
         strategy=strategy
     )

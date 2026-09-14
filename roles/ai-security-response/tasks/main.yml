@@ -1,6 +1,20 @@
 ---
 # AI Security Response Role - AI tự động phát hiện và phản hồi tấn công mạng
 
+- name: Fail if auto-response enabled without real admin CIDR
+  fail:
+    msg: >-
+      ai_security_response_auto_enabled=true requires ai_security_response_admin_ip
+      to be a real CIDR (not 0.0.0.0/0 or CHANGE_ME*). Keep auto false for labs.
+  when:
+    - install_ai_security_response | default(false)
+    - ai_security_response_auto_enabled | default(false) | bool
+    - >
+      (ai_security_response_admin_ip | default('CHANGE_ME_ADMIN_CIDR')) in
+      ['0.0.0.0/0', '0.0.0.0', '*', 'any']
+      or ('CHANGE_ME' in (ai_security_response_admin_ip | default('CHANGE_ME_ADMIN_CIDR')))
+
+
 - name: Cài đặt Python dependencies cho AI Security Response
   pip:
     name:
@@ -86,6 +100,35 @@
       OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
       CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "30"))  # 30 seconds
       AUTO_RESPONSE_ENABLED = os.getenv("AUTO_RESPONSE_ENABLED", "false") == "true"
+      ADMIN_IP = os.getenv("ADMIN_IP", "CHANGE_ME_ADMIN_CIDR")
+      # Whitelist of automated response actions (LLM cannot invent new ones)
+      ALLOWED_ACTIONS = frozenset({
+          "block_ip", "block_port", "restart_firewall", "enable_fail2ban",
+          "ban_ip_fail2ban", "kill_suspicious_process", "isolate_server",
+          "notify_admin", "create_incident_report"
+      })
+      IPV4_RE = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:/(?:3[0-2]|[12]?\d))?$")
+
+      def _validate_ip(ip):
+          if not ip or not IPV4_RE.match(str(ip).strip()):
+              raise ValueError(f"Rejected non-IPv4/CIDR value: {ip!r}")
+          return str(ip).strip()
+
+      def _validate_port(port):
+          p = int(port)
+          if p < 1 or p > 65535:
+              raise ValueError(f"Rejected port: {port!r}")
+          return p
+
+      def _validate_pid(pid):
+          p = int(pid)
+          if p <= 1:
+              raise ValueError(f"Rejected pid: {pid!r}")
+          return p
+
+      def _run(argv, check=True):
+          """Run argv list only — never shell=True with LLM/untrusted input."""
+          return subprocess.run(argv, shell=False, capture_output=True, text=True, check=check)
 
       class AISecurityResponse:
           def __init__(self):
@@ -204,14 +247,9 @@
           def check_failed_logins(self):
               """Kiểm tra failed login attempts"""
               try:
-                  result = subprocess.run(
-                      "journalctl -u ssh -p err -n 1000 --no-pager | grep -i 'failed password'",
-                      shell=True,
-                      capture_output=True,
-                      text=True
-                  )
-                  return len(result.stdout.split('\n')) if result.stdout else 0
-              except:
+                  result = _run(["journalctl", "-u", "ssh", "-p", "err", "-n", "1000", "--no-pager"], check=False)
+                  return sum(1 for line in result.stdout.splitlines() if "failed password" in line.lower())
+              except Exception:
                   return 0
 
           def check_suspicious_processes(self):
@@ -239,53 +277,40 @@
           def check_port_scanning(self):
               """Kiểm tra port scanning"""
               try:
-                  result = subprocess.run(
-                      "journalctl -k -n 1000 --no-pager | grep -i 'port scan'",
-                      shell=True,
-                      capture_output=True,
-                      text=True
-                  )
-                  if result.stdout:
-                      return result.stdout[:200]
+                  result = _run(["journalctl", "-k", "-n", "1000", "--no-pager"], check=False)
+                  hits = [ln for ln in result.stdout.splitlines() if "port scan" in ln.lower()]
+                  if hits:
+                      return "\n".join(hits)[:200]
                   return None
-              except:
+              except Exception:
                   return None
 
           def check_ddos_indicators(self):
-              """Kiểm tra DDoS indicators"""
+              """Kiểm tra DDoS indicators (psutil — no shell pipeline)"""
               indicators = []
-              
-              # Kiểm tra số lượng connections từ cùng một IP
               try:
-                  result = subprocess.run(
-                      "netstat -an | grep ESTABLISHED | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -5",
-                      shell=True,
-                      capture_output=True,
-                      text=True
-                  )
-                  lines = result.stdout.strip().split('\n')
-                  for line in lines:
-                      parts = line.split()
-                      if len(parts) >= 2 and int(parts[0]) > 100:
-                          indicators.append(f"IP {parts[1]}: {parts[0]} connections")
-              except:
+                  from collections import Counter
+                  remotes = []
+                  for c in psutil.net_connections(kind="inet"):
+                      if c.status == psutil.CONN_ESTABLISHED and c.raddr:
+                          remotes.append(c.raddr.ip)
+                  for ip, count in Counter(remotes).most_common(5):
+                      if count > 100:
+                          indicators.append(f"IP {ip}: {count} connections")
+              except Exception:
                   pass
-              
               return indicators if indicators else None
 
           def check_unauthorized_access(self):
               """Kiểm tra unauthorized access"""
               try:
-                  result = subprocess.run(
-                      "journalctl -p err -n 100 --no-pager | grep -i 'unauthorized\\|permission denied\\|access denied'",
-                      shell=True,
-                      capture_output=True,
-                      text=True
-                  )
-                  if result.stdout:
-                      return result.stdout[:300]
+                  result = _run(["journalctl", "-p", "err", "-n", "100", "--no-pager"], check=False)
+                  keys = ("unauthorized", "permission denied", "access denied")
+                  hits = [ln for ln in result.stdout.splitlines() if any(k in ln.lower() for k in keys)]
+                  if hits:
+                      return "\n".join(hits)[:300]
                   return None
-              except:
+              except Exception:
                   return None
 
           def analyze_threat_with_ai(self, alerts, system_status):
@@ -336,65 +361,74 @@
               return response
 
           def block_ip(self, ip):
-              """Chặn IP với iptables"""
+              """Chặn IP với iptables (argv whitelist — no shell)"""
               try:
-                  subprocess.run(f"iptables -A INPUT -s {ip} -j DROP", shell=True, check=True)
-                  subprocess.run(f"iptables-save > /etc/iptables/rules.v4", shell=True)
+                  ip = _validate_ip(ip)
+                  _run(["iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"], check=True)
+                  with open("/etc/iptables/rules.v4", "w") as rf:
+                      subprocess.run(["iptables-save"], shell=False, check=False, stdout=rf)
                   return {"action": "block_ip", "success": True, "ip": ip}
               except Exception as e:
                   return {"action": "block_ip", "success": False, "error": str(e)}
 
           def block_port(self, port):
-              """Chặn port với iptables"""
+              """Chặn port với iptables (argv whitelist — no shell)"""
               try:
-                  subprocess.run(f"iptables -A INPUT -p tcp --dport {port} -j DROP", shell=True, check=True)
-                  subprocess.run(f"iptables-save > /etc/iptables/rules.v4", shell=True)
+                  port = str(_validate_port(port))
+                  _run(["iptables", "-A", "INPUT", "-p", "tcp", "--dport", port, "-j", "DROP"], check=True)
+                  with open("/etc/iptables/rules.v4", "w") as rf:
+                      subprocess.run(["iptables-save"], shell=False, check=False, stdout=rf)
                   return {"action": "block_port", "success": True, "port": port}
               except Exception as e:
                   return {"action": "block_port", "success": False, "error": str(e)}
 
           def restart_firewall(self):
-              """Restart firewall"""
+              """Reload UFW (fixed argv)"""
               try:
-                  subprocess.run("ufw reload", shell=True, check=True)
+                  _run(["ufw", "reload"], check=True)
                   return {"action": "restart_firewall", "success": True}
               except Exception as e:
                   return {"action": "restart_firewall", "success": False, "error": str(e)}
 
           def enable_fail2ban(self):
-              """Bật fail2ban"""
+              """Bật fail2ban (fixed argv)"""
               try:
-                  subprocess.run("systemctl enable fail2ban", shell=True, check=True)
-                  subprocess.run("systemctl start fail2ban", shell=True, check=True)
+                  _run(["systemctl", "enable", "fail2ban"], check=True)
+                  _run(["systemctl", "start", "fail2ban"], check=True)
                   return {"action": "enable_fail2ban", "success": True}
               except Exception as e:
                   return {"action": "enable_fail2ban", "success": False, "error": str(e)}
 
           def ban_ip_fail2ban(self, ip):
-              """Ban IP với fail2ban"""
+              """Ban IP với fail2ban (validated IP, argv)"""
               try:
-                  subprocess.run(f"fail2ban-client set sshd banip {ip}", shell=True, check=True)
+                  ip = _validate_ip(ip)
+                  _run(["fail2ban-client", "set", "sshd", "banip", ip], check=True)
                   return {"action": "ban_ip_fail2ban", "success": True, "ip": ip}
               except Exception as e:
                   return {"action": "ban_ip_fail2ban", "success": False, "error": str(e)}
 
           def kill_suspicious_process(self, pid):
-              """Kill process đáng ngờ"""
+              """Kill process đáng ngờ (validated pid, no shell)"""
               try:
-                  subprocess.run(f"kill -9 {pid}", shell=True, check=True)
+                  pid = _validate_pid(pid)
+                  _run(["kill", "-9", str(pid)], check=True)
                   return {"action": "kill_suspicious_process", "success": True, "pid": pid}
               except Exception as e:
                   return {"action": "kill_suspicious_process", "success": False, "error": str(e)}
 
           def isolate_server(self):
-              """Cô lập server - hành động cực đoan"""
+              """Cô lập server — requires real ADMIN_IP CIDR (never 0.0.0.0/0)"""
               try:
-                  # Chặn tất cả incoming traffic trừ SSH từ admin IP
-                  subprocess.run("ufw default deny incoming", shell=True, check=True)
-                  subprocess.run("ufw default allow outgoing", shell=True, check=True)
-                  subprocess.run("ufw allow from {{ admin_ip }} to any port 22", shell=True)
-                  subprocess.run("ufw reload", shell=True, check=True)
-                  return {"action": "isolate_server", "success": True}
+                  admin = _validate_ip(ADMIN_IP)
+                  if admin in ("0.0.0.0/0", "0.0.0.0", "any", "*") or admin.startswith("CHANGE_ME"):
+                      return {"action": "isolate_server", "success": False,
+                              "error": "ADMIN_IP must be a real admin CIDR (not 0.0.0.0/0 or CHANGE_ME)"}
+                  _run(["ufw", "default", "deny", "incoming"], check=True)
+                  _run(["ufw", "default", "allow", "outgoing"], check=True)
+                  _run(["ufw", "allow", "from", admin, "to", "any", "port", "22"], check=True)
+                  _run(["ufw", "reload"], check=True)
+                  return {"action": "isolate_server", "success": True, "admin_ip": admin}
               except Exception as e:
                   return {"action": "isolate_server", "success": False, "error": str(e)}
 
@@ -423,14 +457,12 @@
               return {"action": "create_incident_report", "success": True, "incident_file": incident_file}
 
           def execute_response(self, action, params=None):
-              """Thực hiện hành động phản hồi"""
-              if action in self.response_actions:
-                  if params:
-                      return self.response_actions[action](params)
-                  else:
-                      return self.response_actions[action]()
-              else:
-                  return {"action": action, "success": False, "error": "Unknown action"}
+              """Thực hiện hành động phản hồi — whitelist only"""
+              if action not in ALLOWED_ACTIONS or action not in self.response_actions:
+                  return {"action": action, "success": False, "error": "Action not in whitelist"}
+              if params:
+                  return self.response_actions[action](params)
+              return self.response_actions[action]()
 
           def log_security_event(self, event_type, details):
               """Ghi log security event"""
@@ -542,27 +574,21 @@
     mode: '0644'
   when: install_ai_security_response | default(false)
 
-- name: Cấu hình UFW Firewall
+# NOTE: Do not open 22/80/443/app_port world-wide just because this role is enabled.
+# UFW allow rules are opt-in via ai_security_response_open_firewall (default false).
+- name: Cấu hình UFW Firewall policy notes
   copy:
     content: |
-      # Default policies
-      default deny incoming
-      default allow outgoing
-      
-      # Allow SSH
-      allow 22/tcp
-      
-      # Allow HTTP/HTTPS
-      allow 80/tcp
-      allow 443/tcp
-      
-      # Allow app port
-      allow {{ app_port | default(3000) }}/tcp
+      # AI Security Response — reference rules (not auto-applied)
+      # Prefer existing host firewall policy from CORE playbooks.
+      # default deny incoming
+      # default allow outgoing
+      # allow from {{ ai_security_response_admin_ip | default('CHANGE_ME_ADMIN_CIDR') }} to any port 22
     dest: /etc/ufw/ai-security-rules
     mode: '0644'
   when: install_ai_security_response | default(false)
 
-- name: Apply UFW rules
+- name: Apply limited UFW allows — only if explicitly enabled
   ufw:
     rule: allow
     port: "{{ item }}"
@@ -571,13 +597,16 @@
     - "22"
     - "80"
     - "443"
-    - "{{ app_port | default(3000) }}"
-  when: install_ai_security_response | default(false)
+  when:
+    - install_ai_security_response | default(false)
+    - ai_security_response_open_firewall | default(false)
 
 - name: Enable UFW
   ufw:
     state: enabled
-  when: install_ai_security_response | default(false)
+  when:
+    - install_ai_security_response | default(false)
+    - ai_security_response_open_firewall | default(false)
 
 - name: Tạo systemd service cho AI Security Response
   copy:
@@ -588,11 +617,15 @@
 
       [Service]
       Type=simple
-      User={{ app_user | default('admin') }}
+      # NOTE: Destructive actions (iptables/ufw/fail2ban/kill) require root.
+      # Prefer a dedicated sudoers wrapper in production; root is documented risk.
+      # Keep ai_security_response_auto_enabled=false unless vault + real admin CIDR.
+      User=root
       Environment=OLLAMA_HOST=localhost:11434
       Environment=OLLAMA_MODEL={{ ai_security_response_model | default('llama2') }}
       Environment=CHECK_INTERVAL={{ ai_security_response_interval | default(30) }}
-      Environment=AUTO_RESPONSE_ENABLED={{ ai_security_response_auto_enabled | default('false') }}
+      Environment=AUTO_RESPONSE_ENABLED={{ ai_security_response_auto_enabled | default(false) | lower }}
+      Environment=ADMIN_IP={{ ai_security_response_admin_ip | default('CHANGE_ME_ADMIN_CIDR') }}
       ExecStart=/usr/bin/python3 /opt/ai-security-response/responder.py
       Restart=on-failure
       RestartSec=10

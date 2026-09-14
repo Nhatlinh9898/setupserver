@@ -20,15 +20,23 @@
 
 - name: Cài đặt Tailscale
   block:
-    - name: Add Tailscale repository key
-      apt_key:
-        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.gpg
-        state: present
+    - name: Ensure keyrings directory exists (Tailscale)
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
 
-    - name: Add Tailscale repository
+    - name: Download Tailscale signing key (signed-by)
+      get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg
+        dest: /etc/apt/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+
+    - name: Add Tailscale repository (signed-by)
       apt_repository:
-        repo: "deb https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main"
+        repo: "deb [signed-by=/etc/apt/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main"
         state: present
+        filename: tailscale
 
     - name: Install Tailscale
       apt:
@@ -53,9 +61,18 @@
   when: ansible_os_family == "RedHat" and mesh_network_type == "tailscale"
 
 - name: Tạo WireGuard private key
-  shell: wg genkey > /etc/wireguard/privatekey
+  shell: umask 077 && wg genkey > /etc/wireguard/privatekey
   args:
     creates: /etc/wireguard/privatekey
+  when: mesh_network_type == "wireguard"
+  no_log: true
+
+- name: Harden WireGuard private key permissions
+  file:
+    path: /etc/wireguard/privatekey
+    mode: '0600'
+    owner: root
+    group: root
   when: mesh_network_type == "wireguard"
 
 - name: Tạo WireGuard public key
@@ -63,24 +80,31 @@
   args:
     creates: /etc/wireguard/publickey
   when: mesh_network_type == "wireguard"
+  no_log: true
 
 - name: Đọc WireGuard public key
-  command: cat /etc/wireguard/publickey
-  register: wg_public_key
-  changed_when: false
+  slurp:
+    src: /etc/wireguard/publickey
+  register: wg_public_key_b64
   when: mesh_network_type == "wireguard"
 
-- name: Đọc WireGuard private key
-  command: cat /etc/wireguard/privatekey
-  register: wg_private_key
-  changed_when: false
+- name: Đọc WireGuard private key (no_log — used only for template)
+  slurp:
+    src: /etc/wireguard/privatekey
+  register: wg_private_key_b64
   when: mesh_network_type == "wireguard"
+  no_log: true
 
-- name: Hiển thị WireGuard keys
+- name: Set WireGuard key facts
+  set_fact:
+    wg_public_key: "{{ wg_public_key_b64.content | b64decode | trim }}"
+    wg_private_key: "{{ wg_private_key_b64.content | b64decode | trim }}"
+  when: mesh_network_type == "wireguard"
+  no_log: true
+
+- name: Hiển thị WireGuard public key only
   debug:
-    msg:
-      Public Key: "{{ wg_public_key.stdout }}"
-      Private Key: "{{ wg_private_key.stdout }}"
+    msg: "WireGuard Public Key: {{ wg_public_key }}"
   when: mesh_network_type == "wireguard"
 
 - name: Cấu hình WireGuard interface
@@ -105,9 +129,34 @@
     state: started
   when: mesh_network_type == "wireguard"
 
-- name: Authenticate Tailscale
-  shell: tailscale up --authkey {{ tailscale_auth_key }} --hostname {{ mesh_node_name | default(inventory_hostname) }}
-  when: mesh_network_type == "tailscale" and tailscale_auth_key is defined
+- name: Ensure Tailscale auth key directory
+  file:
+    path: "{{ tailscale_authkey_file | default('/etc/tailscale/authkey') | dirname }}"
+    state: directory
+    mode: '0700'
+    owner: root
+    group: root
+  when: mesh_network_type == "tailscale" and (tailscale_auth_key | default('') | length) > 0
+
+- name: Write Tailscale auth key to env file (0600 — avoid cmdline leak)
+  copy:
+    content: "{{ tailscale_auth_key }}"
+    dest: "{{ tailscale_authkey_file | default('/etc/tailscale/authkey') }}"
+    mode: '0600'
+    owner: root
+    group: root
+  when: mesh_network_type == "tailscale" and (tailscale_auth_key | default('') | length) > 0
+  no_log: true
+
+- name: Authenticate Tailscale (TS_AUTHKEY from 0600 file — not playbook cmdline)
+  shell: |
+    set -euo pipefail
+    export TS_AUTHKEY="$(cat "{{ tailscale_authkey_file | default('/etc/tailscale/authkey') }}")"
+    tailscale up --hostname "{{ mesh_node_name | default(inventory_hostname) }}"
+  args:
+    executable: /bin/bash
+  when: mesh_network_type == "tailscale" and (tailscale_auth_key | default('') | length) > 0
+  no_log: true
   ignore_errors: yes
 
 - name: Bật Tailscale service
@@ -137,14 +186,3 @@
     src: mesh_status.sh.j2
     dest: /usr/local/bin/mesh-status
     mode: '0755'
-
-handlers:
-  - name: restart wireguard
-    systemd:
-      name: wg-quick@wg0
-      state: restarted
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded

@@ -10,6 +10,10 @@ locale: en_US.UTF-8
 
 users:
   - name: admin
+    # BOOTSTRAP ONLY: NOPASSWD:ALL is convenient for first boot / Ansible bootstrap.
+    # After SSH key login is verified, tighten to passworded sudo or a command allowlist:
+    #   sudo: ALL=(ALL) ALL
+    #   # or: sudo: ALL=(ALL) NOPASSWD:/usr/bin/systemctl,/usr/bin/apt
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     groups: [users, adm, sudo]

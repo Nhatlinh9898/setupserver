@@ -2,13 +2,13 @@ version: '3.8'
 
 services:
   portainer:
-    image: portainer/portainer-ce:{{ portainer_version | default('latest') }}
+    image: portainer/portainer-ce:{{ portainer_version | default('2.21.4') }}
     container_name: portainer
     restart: unless-stopped
     ports:
-      - "9443:9443"
+      - "{{ portainer_bind_address | default('127.0.0.1') }}:9443:9443"
 {% if portainer_http_enabled | default(false) %}
-      - "9000:9000"
+      - "{{ portainer_bind_address | default('127.0.0.1') }}:9000:9000"
 {% endif %}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

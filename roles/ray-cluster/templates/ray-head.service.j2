@@ -7,7 +7,7 @@ Type=simple
 User=ray
 Group=ray
 WorkingDirectory=/opt/ray
-ExecStart=/usr/local/bin/ray start --head --port={{ ray_head_port | default(6379) }} --dashboard-host=0.0.0.0 --dashboard-port={{ ray_dashboard_port | default(8265) }} --resources='{"CPU": {{ ray_cpu_resources | default(ansible_processor_vcpus) }}, "memory": {{ ray_memory_resources | default(ansible_memtotal_mb // 1024) }} }'
+ExecStart=/usr/local/bin/ray start --head --port={{ ray_head_port | default(6379) }} --dashboard-host={{ ray_dashboard_host | default('127.0.0.1') }} --dashboard-port={{ ray_dashboard_port | default(8265) }} --resources='{"CPU": {{ ray_cpu_resources | default(ansible_processor_vcpus) }}, "memory": {{ ray_memory_resources | default(ansible_memtotal_mb // 1024) }} }'
 Restart=always
 RestartSec=10
 

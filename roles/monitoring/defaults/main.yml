@@ -1,0 +1,15 @@
+---
+prometheus_version: "2.45.0"
+node_exporter_version: "1.6.0"
+grafana_version: "10.0.0"
+grafana_admin_user: "admin"
+# MUST be changed — role fails if still CHANGE_ME or weak defaults
+grafana_admin_password: "CHANGE_ME_GRAFANA_PASSWORD"
+grafana_domain: "localhost"
+grafana_bind_address: "127.0.0.1"
+prometheus_bind_address: "127.0.0.1"
+node_exporter_bind_address: "127.0.0.1"
+# Open firewall only when intentionally exposing (and preferably behind reverse proxy)
+monitoring_public_access: false
+grafana_anonymous_enabled: false
+grafana_config_datasource: true

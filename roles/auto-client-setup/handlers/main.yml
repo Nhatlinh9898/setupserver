@@ -1,0 +1,24 @@
+---
+# Handlers for auto-client-setup (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart auto-setup-api
+  systemd:
+    name: auto-setup-api
+    state: restarted
+    daemon_reload: yes
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded
+
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+
+- name: restart p2p-relay
+  systemd:
+    name: p2p-relay
+    state: restarted
+    daemon_reload: yes

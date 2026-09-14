@@ -168,7 +168,7 @@
   when:
     - ansible_os_family == "Debian"
     - install_postgresql | default(false)
-    - postgresql_allow_remote | default(mysql_allow_remote | default(false))
+    - postgresql_allow_remote | default(false)
 
 - name: Mở port PostgreSQL trên firewall (CentOS) — chỉ khi remote
   firewalld:
@@ -179,4 +179,4 @@
   when:
     - ansible_os_family == "RedHat"
     - install_postgresql | default(false)
-    - mysql_allow_remote | default(false)
+    - postgresql_allow_remote | default(false)

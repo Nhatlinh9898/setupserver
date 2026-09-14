@@ -1,0 +1,12 @@
+---
+# Handlers for webmin (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart webmin
+  systemd:
+    name: webmin
+    state: restarted
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded
