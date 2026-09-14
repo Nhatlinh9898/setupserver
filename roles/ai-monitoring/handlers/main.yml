@@ -1,0 +1,8 @@
+---
+# Handlers for ai-monitoring
+
+- name: restart ai-monitoring
+  systemd:
+    name: ai-monitoring
+    state: restarted
+    daemon_reload: yes

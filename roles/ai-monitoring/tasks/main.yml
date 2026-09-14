@@ -12,7 +12,7 @@
       - python-dotenv
     state: present
     executable: pip3
-  when: install_ai_monitoring | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_monitoring | default(false))
 
 - name: Tạo directory cho AI Monitoring
   file:
@@ -21,6 +21,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: (install_ai_ops | default(false)) or (install_ai_monitoring | default(false))
 
 - name: Copy AI Monitoring script
   copy:
@@ -186,7 +187,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_monitoring | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_monitoring | default(false))
 
 - name: Tạo logs directory
   file:
@@ -195,14 +196,14 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_monitoring | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_monitoring | default(false))
 
 - name: Tạo systemd service cho AI Monitoring
   template:
     src: ai-monitoring.service.j2
     dest: /etc/systemd/system/ai-monitoring.service
     mode: '0644'
-  when: install_ai_monitoring | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_monitoring | default(false))
   notify: restart ai-monitoring
 
 - name: Enable AI Monitoring service
@@ -211,10 +212,4 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_ai_monitoring | default(false) and ai_monitoring_enabled | default(false)
-
-handlers:
-  - name: restart ai-monitoring
-    systemd:
-      name: ai-monitoring
-      state: restarted
+  when: ((install_ai_ops | default(false)) or (install_ai_monitoring | default(false))) and (ai_monitoring_enabled | default(false))

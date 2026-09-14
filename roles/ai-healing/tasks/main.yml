@@ -11,7 +11,7 @@
       - python-dotenv
     state: present
     executable: pip3
-  when: install_ai_healing | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_healing | default(false))
 
 - name: Tạo directory cho AI Healing
   file:
@@ -20,6 +20,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: (install_ai_ops | default(false)) or (install_ai_healing | default(false))
 
 - name: Copy AI Healing script
   copy:
@@ -218,7 +219,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_healing | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_healing | default(false))
 
 - name: Tạo logs directory
   file:
@@ -227,14 +228,14 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_healing | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_healing | default(false))
 
 - name: Tạo systemd service cho AI Healing
   template:
     src: ai-healing.service.j2
     dest: /etc/systemd/system/ai-healing.service
     mode: '0644'
-  when: install_ai_healing | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_healing | default(false))
   notify: restart ai-healing
 
 - name: Enable AI Healing service
@@ -243,10 +244,4 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_ai_healing | default(false) and ai_healing_enabled | default(false)
-
-handlers:
-  - name: restart ai-healing
-    systemd:
-      name: ai-healing
-      state: restarted
+  when: ((install_ai_ops | default(false)) or (install_ai_healing | default(false))) and (ai_healing_enabled | default(false))

@@ -12,7 +12,7 @@
       - python-dotenv
     state: present
     executable: pip3
-  when: install_ai_assistant | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))
 
 - name: Tạo directory cho AI Assistant
   file:
@@ -21,6 +21,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))
 
 - name: Tạo knowledge base directory
   file:
@@ -29,7 +30,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_assistant | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))
 
 - name: Copy AI Assistant script
   copy:
@@ -198,7 +199,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_assistant | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))
 
 - name: Copy sample knowledge documents
   copy:
@@ -284,10 +285,10 @@
     mode: '0644'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_assistant | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))
 
 - name: Tạo alias cho assistant
   lineinfile:
     path: /home/{{ app_user | default('admin') }}/.bashrc
     line: "alias ai-assistant='python3 /opt/ai-assistant/assistant.py'"
-  when: install_ai_assistant | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_assistant | default(false))

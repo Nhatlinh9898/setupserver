@@ -1,0 +1,8 @@
+---
+# Handlers for ai-chatops (moved out of tasks — tasks files cannot contain handlers:)
+
+- name: restart chatops
+  systemd:
+    name: ai-chatops
+    state: restarted
+    daemon_reload: yes

@@ -24,6 +24,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_app_hardening | default(false)
 
 - name: Tạo backup directory
   file:
@@ -32,6 +33,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_app_hardening | default(false)
 
 - name: Tạo integrity directory
   file:
@@ -40,6 +42,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_app_hardening | default(false)
 
 - name: Tạo snapshot directory
   file:
@@ -48,6 +51,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_app_hardening | default(false)
 
 - name: Copy App Hardening script
   copy:
@@ -267,45 +271,36 @@
           
           def create_apparmor_profile(self):
               """Tạo AppArmor profile cho app"""
-              profile_content = f"""
-#include <tunables/global>
-
-profile {self.project_path} {{
-  # Allow basic operations
-  capability net_bind_service,
-  capability net_admin,
-  
-  # Allow network
-  network inet stream,
-  network inet6 stream,
-  
-  # Allow access to project directory
-  {self.project_path}/** r,
-  {self.project_path}/** w,
-  
-  # Allow access to temp
-  /tmp/** rw,
-  
-  # Deny access to sensitive areas
-  deny /etc/shadow r,
-  deny /etc/passwd r,
-  deny /root/** rw,
-  deny /home/**/.ssh/** rw,
-  
-  # Deny system modification
-  deny /bin/** w,
-  deny /usr/bin/** w,
-  deny /sbin/** w,
-  deny /usr/sbin/** w,
-}}
-"""
-              profile_file = f"/etc/apparmor.d/{os.path.basename(self.project_path)}"
-              with open(profile_file, 'w') as f:
+              brace_open = chr(123)
+              brace_close = chr(125)
+              lines = [
+                  "#include <tunables/global>",
+                  "",
+                  "profile %s %s" % (self.project_path, brace_open),
+                  "  capability net_bind_service,",
+                  "  capability net_admin,",
+                  "  network inet stream,",
+                  "  network inet6 stream,",
+                  "  %s/** r," % self.project_path,
+                  "  %s/** w," % self.project_path,
+                  "  /tmp/** rw,",
+                  "  deny /etc/shadow r,",
+                  "  deny /etc/passwd r,",
+                  "  deny /root/** rw,",
+                  "  deny /home/**/.ssh/** rw,",
+                  "  deny /bin/** w,",
+                  "  deny /usr/bin/** w,",
+                  "  deny /sbin/** w,",
+                  "  deny /usr/sbin/** w,",
+                  brace_close,
+              ]
+              profile_content = "\n".join(lines) + "\n"
+              profile_file = "/etc/apparmor.d/%s" % os.path.basename(self.project_path)
+              with open(profile_file, "w") as f:
                   f.write(profile_content)
-              
-              # Load profile
-              subprocess.run(f"apparmor_parser -r {profile_file}", shell=True)
-              print(f"✅ AppArmor profile created: {profile_file}")
+
+              subprocess.run("apparmor_parser -r %s" % profile_file, shell=True)
+              print("OK AppArmor profile created: %s" % profile_file)
               return profile_file
           
           def enable_audit_logging(self):
@@ -483,4 +478,4 @@ profile {self.project_path} {{
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_app_hardening | default(false) and app_hardening_enabled | default(true)
+  when: install_app_hardening | default(false) and app_hardening_enabled | default(false)

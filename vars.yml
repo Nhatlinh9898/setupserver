@@ -66,6 +66,18 @@ install_app_hardening: false
 install_container_isolation: false
 install_ai_security_response: false
 install_ai_ops: false  # chatops, monitoring AI, healing, assistant
+install_ai_chatops: false
+install_ai_monitoring: false
+install_ai_healing: false
+install_ai_assistant: false
+install_ollama: false
+ollama_api_enabled: false
+ollama_api_bind: "127.0.0.1"
+ai_healing_auto_enabled: false
+ai_security_response_auto_enabled: false
+ai_security_response_enabled: false
+app_hardening_enabled: false
+container_monitor_enabled: false
 install_ray_cluster: false
 install_gpu_api_service: false
 install_federated_learning: false

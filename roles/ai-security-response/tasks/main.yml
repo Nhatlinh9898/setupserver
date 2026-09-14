@@ -35,6 +35,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security_response | default(false)
 
 - name: Tạo logs directory
   file:
@@ -43,6 +44,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security_response | default(false)
 
 - name: Tạo alerts directory
   file:
@@ -51,6 +53,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security_response | default(false)
 
 - name: Tạo incidents directory
   file:
@@ -59,6 +62,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security_response | default(false)
 
 - name: Copy AI Security Response script
   copy:
@@ -81,7 +85,7 @@
       OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost:11434")
       OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama2")
       CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "30"))  # 30 seconds
-      AUTO_RESPONSE_ENABLED = os.getenv("AUTO_RESPONSE_ENABLED", "true") == "true"
+      AUTO_RESPONSE_ENABLED = os.getenv("AUTO_RESPONSE_ENABLED", "false") == "true"
 
       class AISecurityResponse:
           def __init__(self):
@@ -520,7 +524,7 @@
       bantime = 3600
       findtime = 600
       maxretry = 5
-      destemail = admin@example.com
+      destemail = CHANGE_ME_ADMIN_EMAIL@example.com
       sendername = Fail2Ban
       
       [sshd]
@@ -588,7 +592,7 @@
       Environment=OLLAMA_HOST=localhost:11434
       Environment=OLLAMA_MODEL={{ ai_security_response_model | default('llama2') }}
       Environment=CHECK_INTERVAL={{ ai_security_response_interval | default(30) }}
-      Environment=AUTO_RESPONSE_ENABLED={{ ai_security_response_auto_enabled | default('true') }}
+      Environment=AUTO_RESPONSE_ENABLED={{ ai_security_response_auto_enabled | default('false') }}
       ExecStart=/usr/bin/python3 /opt/ai-security-response/responder.py
       Restart=on-failure
       RestartSec=10
@@ -605,4 +609,4 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_ai_security_response | default(false) and ai_security_response_enabled | default(true)
+  when: install_ai_security_response | default(false) and ai_security_response_enabled | default(false)

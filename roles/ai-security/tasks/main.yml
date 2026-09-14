@@ -8,6 +8,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security | default(false)
 
 - name: Copy AI Security Policy file
   copy:
@@ -16,6 +17,7 @@
     mode: '0644'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security | default(false)
 
 - name: Copy AI Security Enforcer script
   copy:
@@ -200,6 +202,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security | default(false)
 
 - name: Tạo audit log directory
   file:
@@ -208,6 +211,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_ai_security | default(false)
 
 - name: Tạo systemd service cho AI Security (optional - để monitor)
   copy:
@@ -217,12 +221,21 @@
       After=network.target
 
       [Service]
-      Type=simple
+      Type=oneshot
       User={{ app_user | default('admin') }}
       ExecStart=/usr/bin/python3 /opt/ai-security/enforcer.py
-      Restart=on-failure
+      RemainAfterExit=no
 
       [Install]
       WantedBy=multi-user.target
     dest: /etc/systemd/system/ai-security.service
     mode: '0644'
+  when: install_ai_security | default(false)
+
+- name: Enable AI Security service
+  systemd:
+    name: ai-security
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: install_ai_security | default(false) and ai_security_service_enabled | default(false)

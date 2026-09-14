@@ -41,8 +41,8 @@ install_ai_security_response: true
 ai_security_response_enabled: true
 ai_security_response_model: "llama2"
 ai_security_response_interval: 30
-ai_security_response_auto_enabled: true
-ai_security_response_admin_ip: "0.0.0.0/0"
+ai_security_response_auto_enabled: false  # opt-in only
+ai_security_response_admin_ip: "CHANGE_ME_ADMIN_CIDR"
 ```
 
 ### Dependencies
