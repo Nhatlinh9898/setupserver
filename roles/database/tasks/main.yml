@@ -111,6 +111,23 @@
     - (mysql_password | regex_search('CHANGE_ME')) is none
   become: yes
 
+
+- name: Tạo MySQL/MariaDB user (RedHat)
+  mysql_user:
+    name: "{{ mysql_user | default('appuser') }}"
+    password: "{{ mysql_password }}"
+    priv: "{{ mysql_database | default('appdb') }}.*:ALL"
+    host: "{{ '%' if (mysql_allow_remote | default(false)) else 'localhost' }}"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when:
+    - ansible_os_family == "RedHat"
+    - install_mysql | default(true)
+    - mysql_password is defined
+    - (mysql_password | regex_search('CHANGE_ME')) is none
+  become: yes
+  failed_when: false
+
 - name: Cấu hình MySQL bind-address (Debian, chỉ khi cho phép remote)
   template:
     src: mysql.cnf.j2
@@ -151,7 +168,7 @@
   when:
     - ansible_os_family == "Debian"
     - install_postgresql | default(false)
-    - mysql_allow_remote | default(false)
+    - postgresql_allow_remote | default(mysql_allow_remote | default(false))
 
 - name: Mở port PostgreSQL trên firewall (CentOS) — chỉ khi remote
   firewalld:

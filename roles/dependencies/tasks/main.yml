@@ -1,46 +1,65 @@
 ---
-# Dependencies Role - Cài đặt dependencies cho dự án (npm, pip, composer, v.v.)
+# Dependencies Role - npm / pip / composer / ... (simple app path)
 
-# Node.js / npm dependencies
-- name: Kiểm tra package.json tồn tại
+- name: Fail nếu thiếu project_path
+  fail:
+    msg: "project_path bắt buộc cho role dependencies."
+  when: project_path is not defined or (project_path | length) == 0
+
+# Node.js / npm
+- name: Kiểm tra package.json
   stat:
     path: "{{ project_path }}/package.json"
   register: package_json
 
-- name: Cài đặt npm dependencies
-  npm:
-    path: "{{ project_path }}"
-    state: present
+- name: Kiểm tra package-lock.json
+  stat:
+    path: "{{ project_path }}/package-lock.json"
+  register: package_lock
   when: package_json.stat.exists
-  become_user: "{{ app_user }}"
-  environment:
-    NODE_ENV: "{{ node_env | default('production') }}"
 
-- name: Cài đặt npm dependencies với ci (cho production)
-  command: npm ci
+- name: npm ci (production + lockfile)
+  command: npm ci --omit=dev
   args:
     chdir: "{{ project_path }}"
-  when: package_json.stat.exists and node_env | default('production') == 'production'
-  become_user: "{{ app_user }}"
+  when:
+    - package_json.stat.exists
+    - (package_lock.stat.exists | default(false))
+    - (node_env | default('production')) == 'production'
+  become_user: "{{ app_user | default('admin') }}"
   environment:
     NODE_ENV: production
 
-- name: Chạy npm build (nếu có script build)
-  command: npm run build
-  args:
-    chdir: "{{ project_path }}"
-  when: package_json.stat.exists and npm_build | default(false)
-  become_user: "{{ app_user }}"
+- name: npm install (dev hoặc không có lockfile)
+  npm:
+    path: "{{ project_path }}"
+    state: present
+  when:
+    - package_json.stat.exists
+    - not (
+        (package_lock.stat.exists | default(false))
+        and (node_env | default('production')) == 'production'
+      )
+  become_user: "{{ app_user | default('admin') }}"
   environment:
     NODE_ENV: "{{ node_env | default('production') }}"
 
-# Python / pip dependencies
-- name: Kiểm tra requirements.txt tồn tại
+- name: npm run build (khi bật npm_build)
+  command: npm run build
+  args:
+    chdir: "{{ project_path }}"
+  when: package_json.stat.exists and (npm_build | default(false))
+  become_user: "{{ app_user | default('admin') }}"
+  environment:
+    NODE_ENV: "{{ node_env | default('production') }}"
+
+# Python / pip
+- name: Kiểm tra requirements.txt
   stat:
     path: "{{ project_path }}/requirements.txt"
   register: requirements_txt
 
-- name: Kiểm tra pyproject.toml tồn tại
+- name: Kiểm tra pyproject.toml
   stat:
     path: "{{ project_path }}/pyproject.toml"
   register: pyproject_toml
@@ -50,166 +69,199 @@
   args:
     creates: "{{ project_path }}/venv"
   when: requirements_txt.stat.exists or pyproject_toml.stat.exists
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
 
-- name: Cài đặt pip dependencies từ requirements.txt
+- name: Upgrade pip trong venv
+  pip:
+    name: pip
+    virtualenv: "{{ project_path }}/venv"
+    state: latest
+  when: requirements_txt.stat.exists or pyproject_toml.stat.exists
+  become_user: "{{ app_user | default('admin') }}"
+
+- name: Cài pip từ requirements.txt
   pip:
     requirements: "{{ project_path }}/requirements.txt"
     virtualenv: "{{ project_path }}/venv"
     state: present
   when: requirements_txt.stat.exists
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
 
-- name: Cài đặt pip dependencies từ pyproject.toml
+- name: Cài package từ pyproject.toml (editable)
   pip:
-    chdir: "{{ project_path }}"
+    name: "{{ project_path }}"
+    editable: true
     virtualenv: "{{ project_path }}/venv"
     state: present
-  when: pyproject_toml.stat.exists
-  become_user: "{{ app_user }}"
+  when:
+    - pyproject_toml.stat.exists
+    - not requirements_txt.stat.exists
+  become_user: "{{ app_user | default('admin') }}"
 
-# PHP / Composer dependencies
-- name: Kiểm tra composer.json tồn tại
+# PHP / Composer
+- name: Kiểm tra composer.json
   stat:
     path: "{{ project_path }}/composer.json"
   register: composer_json
 
-- name: Cài đặt Composer
+- name: Cài đặt Composer nếu thiếu
   shell: |
-    curl -sS https://getcomposer.org/installer | php
-    mv composer.phar /usr/local/bin/composer
+    set -e
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
   args:
     creates: /usr/local/bin/composer
   when: composer_json.stat.exists
 
-- name: Cài đặt Composer dependencies
+- name: Composer install
   composer:
     command: install
     working_dir: "{{ project_path }}"
     prefer_dist: yes
     no_dev: "{{ composer_no_dev | default(true) }}"
   when: composer_json.stat.exists
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
 
-# Ruby / Bundler dependencies
-- name: Kiểm tra Gemfile tồn tại
+# Ruby
+- name: Kiểm tra Gemfile
   stat:
     path: "{{ project_path }}/Gemfile"
   register: gemfile
 
-- name: Cài đặt Bundler
+- name: Cài Bundler
   gem:
     name: bundler
     state: present
   when: gemfile.stat.exists
 
-- name: Cài đặt Ruby gems
+- name: Bundle install
   bundler:
     state: present
     gemfile: "{{ project_path }}/Gemfile"
     deployment_mode: "{{ bundler_deployment | default(true) }}"
   when: gemfile.stat.exists
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
 
-# Go / Go modules
-- name: Kiểm tra go.mod tồn tại
+# Go
+- name: Kiểm tra go.mod
   stat:
     path: "{{ project_path }}/go.mod"
   register: go_mod
 
-- name: Cài đặt Go dependencies
+- name: go mod download
   command: go mod download
   args:
     chdir: "{{ project_path }}"
   when: go_mod.stat.exists
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
   environment:
-    GOPATH: /home/{{ app_user }}/go
+    GOPATH: "/home/{{ app_user | default('admin') }}/go"
 
-# Java / Maven dependencies
-- name: Kiểm tra pom.xml tồn tại
+# Java — opt-in
+- name: Kiểm tra pom.xml
   stat:
     path: "{{ project_path }}/pom.xml"
   register: pom_xml
 
-- name: Cài đặt Maven dependencies
-  command: mvn clean install
+- name: mvn clean install (khi bật run_maven)
+  command: mvn clean install -DskipTests
   args:
     chdir: "{{ project_path }}"
-  when: pom_xml.stat.exists
-  become_user: "{{ app_user }}"
+  when: pom_xml.stat.exists and (run_maven | default(false))
+  become_user: "{{ app_user | default('admin') }}"
 
-# Java / Gradle dependencies
-- name: Kiểm tra build.gradle tồn tại
+- name: Kiểm tra build.gradle
   stat:
     path: "{{ project_path }}/build.gradle"
   register: build_gradle
 
-- name: Cài đặt Gradle dependencies
-  command: ./gradlew build
+- name: gradlew build (khi bật run_gradle)
+  command: ./gradlew build -x test
   args:
     chdir: "{{ project_path }}"
-  when: build_gradle.stat.exists
-  become_user: "{{ app_user }}"
+  when: build_gradle.stat.exists and (run_gradle | default(false))
+  become_user: "{{ app_user | default('admin') }}"
 
-# Rust / Cargo dependencies
-- name: Kiểm tra Cargo.toml tồn tại
+# Rust — opt-in
+- name: Kiểm tra Cargo.toml
   stat:
     path: "{{ project_path }}/Cargo.toml"
   register: cargo_toml
 
-- name: Cài đặt Rust dependencies
+- name: cargo build --release (khi bật run_cargo)
   command: cargo build --release
   args:
     chdir: "{{ project_path }}"
-  when: cargo_toml.stat.exists
-  become_user: "{{ app_user }}"
+  when: cargo_toml.stat.exists and (run_cargo | default(false))
+  become_user: "{{ app_user | default('admin') }}"
 
-# Docker dependencies
-- name: Kiểm tra docker-compose.yml tồn tại
+# Docker
+- name: Kiểm tra compose files
   stat:
-    path: "{{ project_path }}/docker-compose.yml"
-  register: docker_compose_yml
+    path: "{{ project_path }}/{{ item }}"
+  loop:
+    - docker-compose.yml
+    - docker-compose.yaml
+    - compose.yml
+    - compose.yaml
+  register: compose_files
 
-- name: Kiểm tra Dockerfile tồn tại
+- name: Kiểm tra Dockerfile
   stat:
     path: "{{ project_path }}/Dockerfile"
   register: dockerfile
 
-- name: Build Docker image
-  command: docker build -t {{ docker_image_name | default('app') }}:{{ docker_image_tag | default('latest') }} .
+- name: Set compose file path
+  set_fact:
+    compose_file: "{{ (compose_files.results | selectattr('stat.exists') | map(attribute='stat.path') | list | first) | default('') }}"
+
+- name: Build Docker image (Dockerfile, không có compose)
+  command: >-
+    docker build -t {{ docker_image_name | default('app') }}:{{ docker_image_tag | default('latest') }} .
   args:
     chdir: "{{ project_path }}"
-  when: dockerfile.stat.exists
+  when:
+    - dockerfile.stat.exists
+    - (compose_file | length) == 0
+    - install_docker | default(true)
 
-- name: Build và start Docker Compose
-  command: docker-compose up -d --build
+- name: docker compose up (plugin v2, fallback docker-compose)
+  shell: |
+    set -e
+    if docker compose version >/dev/null 2>&1; then
+      docker compose -f "{{ compose_file }}" up -d --build
+    elif command -v docker-compose >/dev/null 2>&1; then
+      docker-compose -f "{{ compose_file }}" up -d --build
+    else
+      echo "Neither docker compose nor docker-compose found" >&2
+      exit 1
+    fi
   args:
     chdir: "{{ project_path }}"
-  when: docker_compose_yml.stat.exists
+  when:
+    - (compose_file | length) > 0
+    - install_docker | default(true)
 
-# Custom install script
-- name: Kiểm tra install.sh tồn tại
+# Custom scripts
+- name: Kiểm tra install.sh
   stat:
     path: "{{ project_path }}/install.sh"
   register: install_sh
 
-- name: Chạy custom install script
+- name: Chạy custom install.sh
   command: bash install.sh
   args:
     chdir: "{{ project_path }}"
-  when: install_sh.stat.exists
-  become_user: "{{ app_user }}"
+  when: install_sh.stat.exists and (run_custom_install | default(true))
+  become_user: "{{ app_user | default('admin') }}"
 
-# Custom setup script
-- name: Kiểm tra setup.sh tồn tại
+- name: Kiểm tra setup.sh
   stat:
     path: "{{ project_path }}/setup.sh"
   register: setup_sh
 
-- name: Chạy custom setup script
+- name: Chạy custom setup.sh
   command: bash setup.sh
   args:
     chdir: "{{ project_path }}"
-  when: setup_sh.stat.exists
-  become_user: "{{ app_user }}"
+  when: setup_sh.stat.exists and (run_custom_setup | default(true))
+  become_user: "{{ app_user | default('admin') }}"

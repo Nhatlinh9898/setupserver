@@ -1,12 +1,18 @@
 # Linux Server Setup Configuration
 
-Repository này chứa các file cấu hình để cài đặt tự động Linux Server (Ubuntu Server hoặc CentOS) cho mục đích Web Server, Database Server, và Application Server.
+Repository này chứa các file cấu hình để cài đặt tự động Linux Server (Ubuntu Server hoặc Rocky/Alma/RHEL) cho mục đích Web Server, Database Server, và Application Server.
+
+
+> **CORE path (mặc định):** chỉ Web + App runtime + Database.  
+> Extras (Cockpit/Webmin/Monitoring/Portainer, AI/ML, AI Ops, CUDA, …) **tắt mặc định** — bật bằng flag trong `vars.yml`.  
+> Hướng dẫn ngắn: [`QUICK_START_DEPLOY.md`](QUICK_START_DEPLOY.md) · chạy: `ansible-playbook -i inventory.ini playbook.yml --tags core -e @vars.yml`
+
 
 ## 📋 Nội dung
 
 **Cài đặt OS:**
 - `ubuntu-server-cloud-init.yaml` - File cấu hình cài đặt tự động Ubuntu Server
-- `centos-kickstart.cfg` - File cấu hình cài đặt tự động CentOS/RHEL
+- `centos-kickstart.cfg` - Kickstart cho Rocky/Alma Linux 9 (tương thích RHEL; **không** dùng mirror CentOS 8 EOL)
 
 **Cấu hình Server:**
 - `server-setup.sh` - Shell script cấu hình server cơ bản
@@ -22,20 +28,11 @@ Repository này chứa các file cấu hình để cài đặt tự động Linu
 - `roles/deploy-local/` - Copy code từ local directory
 - `roles/dependencies/` - Cài đặt dependencies (npm, pip, composer, v.v.)
 - `roles/application/` - Cấu hình và chạy ứng dụng
-- `roles/cockpit/` - Cài đặt Cockpit web interface
-- `roles/webmin/` - Cài đặt Webmin web interface
-- `roles/monitoring/` - Cài đặt Grafana + Prometheus
-- `roles/portainer/` - Cài đặt Portainer Docker management
-- `roles/ai-ml/` - Cài đặt Ollama và AI/ML tools
-- `roles/cuda/` - Cài đặt NVIDIA CUDA cho GPU support
-- `roles/ai-chatops/` - Chat với AI để quản lý server
-- `roles/ai-monitoring/` - AI phân tích logs và metrics tự động
-- `roles/ai-healing/` - Auto-healing với AI
-- `roles/ai-assistant/` - AI assistant với RAG
-- `roles/ai-security/` - **Security policy enforcement cho AI**
-- `roles/ai-security-response/` - **AI Security Response - NHIỆM VỤ CHÍNH: Phát hiện và phản hồi tấn công mạng**
-- `roles/app-hardening/` - **App Hardening - LỚP 2: Rào chắn bảo vệ code/app**
-- `roles/container-isolation/` - **Container Isolation - LỚP 2B: Container Sandbox**
+- `roles/cockpit/` - *(optional)* Cockpit — cần `install_remote_management: true`
+- `roles/webmin/` - *(optional)* Webmin — cùng flag remote management
+- `roles/monitoring/` - *(optional)* Grafana + Prometheus
+- `roles/portainer/` - *(optional)* Portainer
+- `roles/ai-ml/` / `roles/cuda/` / `roles/ai-*` / hardening / isolation — *(optional extras, tắt mặc định)*
 
 **Cấu hình Project:**
 - `project-config.yml` - File cấu hình dự án của bạn
@@ -53,11 +50,11 @@ Repository này chứa các file cấu hình để cài đặt tự động Linu
 2. Sử dụng Rufus (Windows) hoặc Etcher (cross-platform) để tạo USB bootable
 3. Copy file `ubuntu-server-cloud-init.yaml` vào USB với tên `user-data` trong thư mục `nocloud/`
 
-**Đối với CentOS:**
+**Đối với Rocky/Alma Linux 9:**
 
-1. Tải CentOS ISO từ: https://www.centos.org/download/
+1. Tải ISO từ: https://rockylinux.org/download (hoặc AlmaLinux)
 2. Sử dụng Rufus hoặc Etcher để tạo USB bootable
-3. Copy file `centos-kickstart.cfg` vào USB với tên `ks.cfg`
+3. Copy file `centos-kickstart.cfg` vào USB với tên `ks.cfg` (đã trỏ mirror Rocky 9)
 
 #### Bước 2: Cài đặt từ USB
 
@@ -68,7 +65,7 @@ Repository này chứa các file cấu hình để cài đặt tự động Linu
 3. Thêm `cloud-init=nocloud-net;s=http://192.168.1.100:8000/` (hoặc sử dụng USB)
 4. Nhấn `F10` để boot
 
-**CentOS:**
+**Rocky/Alma (kickstart):**
 
 1. Boot từ USB
 2. Khi màn hình boot hiện ra, nhấn `Tab` để edit
@@ -85,7 +82,7 @@ Sau khi cài đặt Linux, chạy script này để cấu hình server:
 
 ```bash
 # Download script
-wget https://raw.githubusercontent.com/yourusername/setup/main/server-setup.sh
+wget https://raw.githubusercontent.com/Nhatlinh9898/setupserver/main/server-setup.sh
 
 # Chạy script với quyền root
 sudo bash server-setup.sh
@@ -117,21 +114,24 @@ Edit file `inventory.ini` và thay IP address của server:
 
 ```ini
 [webservers]
-server-01 ansible_host=192.168.1.100 ansible_user=admin
+server-01 ansible_host=CHANGE_ME_APP_IP ansible_user=admin
 ```
 
 #### Chạy Playbook
 
 ```bash
-# Chạy tất cả roles
-ansible-playbook -i inventory.ini playbook.yml
+# Khuyến nghị: chỉ CORE (web + app + database) — extras đã gate mặc định
+ansible-playbook -i inventory.ini playbook.yml --tags core -e @vars.yml
 
-# Chạy chỉ web server role
-ansible-playbook -i inventory.ini playbook.yml --tags web
+# Tương đương không tags (extras vẫn tắt nếu flag = false)
+ansible-playbook -i inventory.ini playbook.yml -e @vars.yml
 
-# Chạy chỉ database role
-ansible-playbook -i inventory.ini playbook.yml --tags database
+# Chỉ web / database
+ansible-playbook -i inventory.ini playbook.yml --tags web -e @vars.yml
+ansible-playbook -i inventory.ini playbook.yml --tags database -e @vars.yml
 ```
+
+Xem thêm: [`QUICK_START_DEPLOY.md`](QUICK_START_DEPLOY.md).
 
 #### Tùy chọn Playbook
 
@@ -164,7 +164,7 @@ git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin https://github.com/yourusername/your-repo.git
+git remote add origin https://github.com/CHANGE_ME/CHANGE_ME.git
 git push -u origin main
 ```
 
@@ -174,7 +174,7 @@ Edit file `project-config.yml` để cấu hình dự án của bạn:
 
 ```yaml
 # Thông tin Git Repository
-git_repository: "https://github.com/yourusername/your-repo.git"
+git_repository: "https://github.com/CHANGE_ME/CHANGE_ME.git"
 git_branch: "main"
 
 # Thông tin Project
@@ -295,14 +295,14 @@ Nếu repository của bạn là private, bạn có thể sử dụng SSH key:
 
 ```yaml
 # Trong project-config.yml
-git_repository: "git@github.com:yourusername/your-repo.git"
+git_repository: "git@github.com:CHANGE_ME/CHANGE_ME.git"
 git_ssh_private_key: "-----BEGIN OPENSSH PRIVATE KEY-----..."
 ```
 
 Hoặc sử dụng username/password (không khuyến khích):
 
 ```yaml
-git_repository: "https://github.com/yourusername/your-repo.git"
+git_repository: "https://github.com/CHANGE_ME/CHANGE_ME.git"
 git_password: "your_password"
 ```
 
@@ -326,7 +326,7 @@ app_port: 3000
 
 ```bash
 # 1. Cấu hình project-config.yml cho Node.js app
-git_repository: "https://github.com/yourusername/nodejs-app.git"
+git_repository: "https://github.com/CHANGE_ME/nodejs-app.git"
 app_name: "nodejs-app"
 app_port: 3000
 node_script: "server.js"
@@ -340,7 +340,7 @@ ansible-playbook -i inventory.ini playbook.yml -e @project-config.yml
 
 ```bash
 # 1. Cấu hình project-config.yml cho Django app
-git_repository: "https://github.com/yourusername/django-app.git"
+git_repository: "https://github.com/CHANGE_ME/django-app.git"
 app_name: "django-app"
 app_port: 8000
 django_settings_module: "myproject.settings"
@@ -354,7 +354,7 @@ ansible-playbook -i inventory.ini playbook.yml -e @project-config.yml
 
 ```bash
 # 1. Cấu hình project-config.yml cho Laravel app
-git_repository: "https://github.com/yourusername/laravel-app.git"
+git_repository: "https://github.com/CHANGE_ME/laravel-app.git"
 app_name: "laravel-app"
 domain_name: "example.com"
 php_version: "8.1"
@@ -364,9 +364,9 @@ install_mysql: true
 ansible-playbook -i inventory.ini playbook.yml -e @project-config.yml
 ```
 
-### Phương án 5: Quản lý Server Từ Xa
+### Phương án 5: Quản lý Server Từ Xa *(optional — `install_remote_management: true`)*
 
-Sau khi cài đặt hoàn tất, bạn có thể quản lý server từ bất kỳ thiết bị nào thông qua các công cụ web:
+Khi bật remote management, bạn có thể quản lý server từ bất kỳ thiết bị nào thông qua các công cụ web:
 
 #### Cockpit - Web Interface Quản Lý Server
 
@@ -503,23 +503,26 @@ ansible-playbook -i inventory.ini playbook.yml --tags monitoring,portainer
 
 #### Tóm Tắt Ports
 
-Sau khi cài đặt tất cả, các ports sau sẽ được mở:
+Khi bật remote management / extras (không phải mặc định CORE), các port tiêu biểu:
 
-| Port | Service | Protocol | Mô tả |
-|------|---------|-----------|-------|
-| 22 | SSH | TCP | Remote shell access |
-| 80 | HTTP | TCP | Web server |
-| 443 | HTTPS | TCP | Web server (SSL) |
-| 9090 | Cockpit | TCP | Web interface quản lý server |
-| 10000 | Webmin | TCP | Web interface quản lý hệ thống |
-| 3000 | Grafana | TCP | Monitoring dashboard |
-| 9090 | Prometheus | TCP | Metrics collection |
-| 9100 | Node Exporter | TCP | System metrics |
-| 9443 | Portainer | TCP | Docker management |
+| Port | Service | Protocol | Khi nào mở |
+|------|---------|-----------|------------|
+| 22 | SSH | TCP | Luôn (CORE) |
+| 80 | HTTP | TCP | CORE web |
+| 443 | HTTPS | TCP | CORE web (nếu SSL) |
+| 3306 / 5432 | MySQL / PostgreSQL | TCP | **Không** mở mặc định; chỉ khi `*_allow_remote: true` |
+| 9090 | Cockpit | TCP | Khi `install_remote_management: true` |
+| 10000 | Webmin | TCP | Khi remote management |
+| 3000 | Grafana | TCP | Khi remote management (tránh trùng `app_port` app của bạn) |
+| 9091 | Prometheus | TCP | *Khuyến nghị* đổi khỏi 9090 nếu cùng host với Cockpit |
+| 9100 | Node Exporter | TCP | Khi monitoring |
+| 9443 | Portainer | TCP | Khi remote management |
 
-### Phương án 6: Cài Đặt AI/ML Tools
+> Bảng trên **không** có nghĩa mọi port đều được mở sau `playbook` mặc định — chỉ CORE (22/80/443) trừ khi bạn bật extras.
 
-Hệ thống hỗ trợ cài đặt các công cụ AI/ML như Ollama, PyTorch, TensorFlow, v.v.
+### Phương án 6: Cài Đặt AI/ML Tools *(optional — `install_ai_ml` / `install_cuda`)*
+
+Hệ thống *có thể* cài các công cụ AI/ML như Ollama, PyTorch, TensorFlow, v.v.
 
 #### Ollama - Local LLM Models
 
@@ -638,9 +641,9 @@ ansible-playbook -i inventory.ini playbook.yml -e @project-config.yml
 | 11434 | Ollama API | LLM API server |
 | 7860 | Stable Diffusion | Image generation web UI |
 
-### Phương án 7: AI Ops - AI Tự Vận Hành Server
+### Phương án 7: AI Ops - AI Tự Vận Hành Server *(optional — `install_ai_ops` / security flags)*
 
-Hệ thống hỗ trợ AI để tự động vận hành và quản lý server.
+Hệ thống *có thể* bật AI để hỗ trợ vận hành và quản lý server.
 
 #### AI ChatOps - Chat với AI để Quản lý Server
 
@@ -1073,7 +1076,7 @@ users:
       - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... your_public_key_here"
 ```
 
-### CentOS Kickstart
+### Rocky/Alma Kickstart (`centos-kickstart.cfg`)
 
 Edit file `centos-kickstart.cfg`:
 
@@ -1103,7 +1106,7 @@ systemctl status docker
 
 # Kiểm tra firewall
 sudo ufw status  # Ubuntu
-sudo firewall-cmd --list-all  # CentOS
+sudo firewall-cmd --list-all  # Rocky/Alma/RHEL
 
 # Test web server
 curl http://localhost
@@ -1117,38 +1120,18 @@ curl http://localhost
 - HTTP/HTTPS ports mở
 
 ### Database
-- MySQL (mặc định)
+- MySQL/MariaDB (mặc định CORE)
 - PostgreSQL (tùy chọn)
-- Remote access được cấu hình
+- Remote access **tắt mặc định** (`mysql_allow_remote` / `postgresql_allow_remote`)
 
-### Application Server
-- Docker & Docker Compose
-- Node.js & npm (tùy chọn)
-- Python 3 & pip
-- Git
-- PM2 (tùy chọn)
-- Supervisor
+### Application Server (CORE)
+- Docker & Compose plugin (nếu `install_docker: true`)
+- Python 3 & pip, Git, Supervisor
+- Node.js / npm / PM2 (khi `install_nodejs: true`)
 
-### Remote Management Tools
-- **Cockpit** - Web interface quản lý server (port 9090)
-- **Webmin** - Web interface quản lý hệ thống (port 10000)
-- **Grafana** - Monitoring dashboard (port 3000)
-- **Prometheus** - Metrics collection (port 9090)
-- **Node Exporter** - System metrics (port 9100)
-- **Portainer** - Docker management web interface (port 9443)
-
-### AI/ML Tools
-- **Ollama** - Local LLM models (port 11434)
-- **PyTorch/TensorFlow** - ML libraries
-- **LangChain** - LLM framework
-- **Stable Diffusion** - Image generation (port 7860)
-- **CUDA** - GPU support (nếu có GPU NVIDIA)
-
-### AI Ops (AI Tự Vận Hành Server)
-- **AI ChatOps** - Chat với AI để quản lý server
-- **AI Monitoring** - AI phân tích logs và metrics tự động
-- **AI Healing** - Auto-healing với AI
-- **AI Assistant** - AI assistant với RAG knowledge base
+### Remote Management / AI / extras *(tắt mặc định)*
+Chỉ cài khi bật flag tương ứng trong `vars.yml` (`install_remote_management`, `install_ai_ml`, `install_ai_ops`, `install_cuda`, …).  
+Không thuộc đường dẫn CORE — xem `QUICK_START_DEPLOY.md`.
 
 ## 🔒 Security Recommendations
 
@@ -1244,6 +1227,7 @@ Pull requests are welcome!
 ---
 
 **Lưu ý quan trọng:**
+- CORE mặc định không cài AI/monitoring/remote-mgmt — đổi `CHANGE_ME_*` trong `vars.yml` / inventory trước khi chạy
 - Backup dữ liệu trước khi cài đặt lại hệ điều hành
 - Test trên môi trường development trước khi áp dụng production
 - Đọc kỹ hướng dẫn trước khi thực hiện

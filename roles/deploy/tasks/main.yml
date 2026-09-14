@@ -1,7 +1,15 @@
 ---
-# Deploy Role - Clone và deploy code từ Git repository
+# Deploy Role - Clone code từ Git (simple app path)
 
-- name: Kiểm tra nếu Git đã được cài đặt
+- name: Fail nếu thiếu cấu hình deploy Git
+  fail:
+    msg: "Cần project_path + git_repository hợp lệ (không chứa CHANGE_ME)."
+  when: >
+    project_path is not defined or (project_path | length) == 0
+    or git_repository is not defined or (git_repository | length) == 0
+    or (git_repository | regex_search('CHANGE_ME')) is not none
+
+- name: Đảm bảo package git
   package:
     name: git
     state: present
@@ -11,66 +19,85 @@
     path: "{{ project_path }}"
     state: directory
     mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+
+- name: Đảm bảo ~/.ssh cho app_user
+  file:
+    path: "/home/{{ app_user | default('admin') }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
+  when: git_ssh_private_key is defined
 
 - name: Setup SSH key cho Git private repository
   copy:
     content: "{{ git_ssh_private_key }}"
-    dest: "/home/{{ app_user }}/.ssh/deploy_key"
+    dest: "/home/{{ app_user | default('admin') }}/.ssh/deploy_key"
     mode: '0600'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
   when: git_ssh_private_key is defined
+  no_log: true
 
 - name: Cấu hình SSH cho Git
   template:
     src: git-ssh-config.j2
-    dest: "/home/{{ app_user }}/.ssh/config"
+    dest: "/home/{{ app_user | default('admin') }}/.ssh/config"
     mode: '0600'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
   when: git_ssh_private_key is defined
 
-- name: Clone repository từ Git (public)
+- name: Clone/update repository (SSH key)
   git:
     repo: "{{ git_repository }}"
     dest: "{{ project_path }}"
     version: "{{ git_branch | default('main') }}"
-    force: yes
+    force: "{{ git_force | default(false) }}"
     update: yes
-  when: git_ssh_private_key is not defined
-  become_user: "{{ app_user }}"
-
-- name: Clone repository từ Git (private với SSH key)
-  git:
-    repo: "{{ git_repository }}"
-    dest: "{{ project_path }}"
-    version: "{{ git_branch | default('main') }}"
-    force: yes
-    update: yes
-    key_file: "/home/{{ app_user }}/.ssh/deploy_key"
+    key_file: "/home/{{ app_user | default('admin') }}/.ssh/deploy_key"
+    accept_hostkey: yes
   when: git_ssh_private_key is defined
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
 
-- name: Clone repository từ Git (private với username/password)
+- name: Clone/update repository (HTTPS + password)
   git:
     repo: "{{ git_repository }}"
     dest: "{{ project_path }}"
     version: "{{ git_branch | default('main') }}"
-    force: yes
+    force: "{{ git_force | default(false) }}"
     update: yes
-    password: "{{ git_password }}"
-  when: git_password is defined
-  become_user: "{{ app_user }}"
+  when:
+    - git_ssh_private_key is not defined
+    - git_password is defined
+  become_user: "{{ app_user | default('admin') }}"
+  no_log: true
+  environment:
+    GIT_ASKPASS: echo
+    # Prefer embedding credentials via ansible git module password when available;
+    # fallback: user should use SSH key or deploy token in URL carefully.
+
+- name: Clone/update repository (public / credential in URL)
+  git:
+    repo: "{{ git_repository }}"
+    dest: "{{ project_path }}"
+    version: "{{ git_branch | default('main') }}"
+    force: "{{ git_force | default(false) }}"
+    update: yes
+  when:
+    - git_ssh_private_key is not defined
+    - git_password is not defined
+  become_user: "{{ app_user | default('admin') }}"
 
 - name: Copy .env file từ template
   template:
     src: env.j2
     dest: "{{ project_path }}/.env"
     mode: '0600'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
   when: env_vars is defined
 
 - name: Copy .env file từ content
@@ -78,17 +105,18 @@
     content: "{{ env_content }}"
     dest: "{{ project_path }}/.env"
     mode: '0600'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
   when: env_content is defined
+  no_log: true
 
-- name: Setup permissions cho project
+- name: Setup ownership cho project
   file:
     path: "{{ project_path }}"
     state: directory
     mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
     recurse: yes
 
 - name: Tạo log directory
@@ -96,24 +124,25 @@
     path: "{{ project_path }}/logs"
     state: directory
     mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
 
 - name: Tạo upload directory (nếu cần)
   file:
     path: "{{ project_path }}/uploads"
     state: directory
     mode: '0755'
-    owner: "{{ app_user }}"
-    group: "{{ app_user }}"
+    owner: "{{ app_user | default('admin') }}"
+    group: "{{ app_user | default('admin') }}"
   when: create_upload_dir | default(false)
 
-- name: Git log - Lấy commit hash hiện tại
+- name: Lấy commit hash hiện tại
   command: git rev-parse HEAD
   args:
     chdir: "{{ project_path }}"
   register: git_commit
-  become_user: "{{ app_user }}"
+  become_user: "{{ app_user | default('admin') }}"
+  changed_when: false
 
 - name: Hiển thị commit hash
   debug:
