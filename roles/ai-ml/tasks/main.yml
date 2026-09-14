@@ -7,19 +7,19 @@
     curl -fsSL https://ollama.com/install.sh | sh
   args:
     creates: /usr/local/bin/ollama
-  when: install_ollama | default(true)
+  when: install_ollama | default(false)
 
 - name: Enable Ollama service
   systemd:
     name: ollama
     enabled: yes
     state: started
-  when: install_ollama | default(true)
+  when: install_ollama | default(false)
 
 - name: Pull Ollama models
   shell: "ollama pull {{ item }}"
   loop: "{{ ollama_models | default(['llama2', 'mistral']) }}"
-  when: install_ollama | default(true)
+  when: install_ollama | default(false)
   ignore_errors: yes
 
 - name: Tạo Ollama API service
@@ -27,7 +27,7 @@
     src: ollama.service.j2
     dest: /etc/systemd/system/ollama-api.service
     mode: '0644'
-  when: install_ollama | default(true) and ollama_api_enabled | default(true)
+  when: install_ollama | default(false) and ollama_api_enabled | default(false)
   notify: restart ollama-api
 
 - name: Enable Ollama API service
@@ -36,21 +36,21 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_ollama | default(true) and ollama_api_enabled | default(true)
+  when: install_ollama | default(false) and ollama_api_enabled | default(false)
 
 - name: Mở port Ollama API trên firewall (Ubuntu)
   ufw:
     rule: allow
     port: "{{ ollama_api_port | default(11434) }}"
     proto: tcp
-  when: ansible_os_family == "Debian" and install_ollama | default(true) and ollama_api_enabled | default(true)
+  when: ansible_os_family == "Debian" and install_ollama | default(false) and ollama_api_enabled | default(false) and (ollama_api_bind | default('127.0.0.1') == '0.0.0.0')
 
 - name: Mở port Ollama API trên firewall (CentOS)
   firewalld:
     port: "{{ ollama_api_port | default(11434) }}/tcp"
     permanent: yes
     state: enabled
-  when: ansible_os_family == "RedHat" and install_ollama | default(true) and ollama_api_enabled | default(true)
+  when: ansible_os_family == "RedHat" and install_ollama | default(false) and ollama_api_enabled | default(false) and (ollama_api_bind | default('127.0.0.1') == '0.0.0.0')
   notify: reload firewalld
 
 # Cài đặt Python AI/ML libraries
@@ -175,6 +175,7 @@
     - /opt/models/ollama
     - /opt/models/huggingface
     - /opt/models/custom
+  when: install_ai_ml | default(false)
 
 - name: Cấu hình environment cho AI/ML
   lineinfile:
@@ -184,14 +185,4 @@
     - "TRANSFORMERS_CACHE=/opt/models/huggingface"
     - "HF_HOME=/opt/models/huggingface"
     - "OLLAMA_MODELS=/opt/models/ollama"
-
-handlers:
-  - name: restart ollama-api
-    systemd:
-      name: ollama-api
-      state: restarted
-
-  - name: reload firewalld
-    systemd:
-      name: firewalld
-      state: reloaded
+  when: install_ai_ml | default(false)

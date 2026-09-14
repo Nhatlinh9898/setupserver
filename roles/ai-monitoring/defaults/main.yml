@@ -1,0 +1,5 @@
+---
+install_ai_monitoring: false
+ai_monitoring_enabled: false
+ai_monitoring_model: llama2
+ai_monitoring_interval: 300

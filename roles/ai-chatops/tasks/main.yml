@@ -12,7 +12,7 @@
       - requests
     state: present
     executable: pip3
-  when: install_ai_chatops | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_chatops | default(false))
 
 - name: Tạo directory cho ChatOps
   file:
@@ -21,6 +21,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: (install_ai_ops | default(false)) or (install_ai_chatops | default(false))
 
 - name: Copy ChatOps script
   copy:
@@ -181,14 +182,14 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
-  when: install_ai_chatops | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_chatops | default(false))
 
 - name: Tạo systemd service cho ChatOps
   template:
     src: chatops.service.j2
     dest: /etc/systemd/system/ai-chatops.service
     mode: '0644'
-  when: install_ai_chatops | default(false)
+  when: (install_ai_ops | default(false)) or (install_ai_chatops | default(false))
   notify: restart chatops
 
 - name: Enable ChatOps service
@@ -197,16 +198,10 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_ai_chatops | default(false) and chatops_service_enabled | default(false)
+  when: ((install_ai_ops | default(false)) or (install_ai_chatops | default(false))) and (chatops_service_enabled | default(false))
 
 - name: Tạo alias cho chatops
   lineinfile:
     path: /home/{{ app_user | default('admin') }}/.bashrc
     line: "alias chatops='python3 /opt/ai-chatops/chatops.py'"
-  when: install_ai_chatops | default(false)
-
-handlers:
-  - name: restart chatops
-    systemd:
-      name: ai-chatops
-      state: restarted
+  when: (install_ai_ops | default(false)) or (install_ai_chatops | default(false))

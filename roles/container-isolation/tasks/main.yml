@@ -25,6 +25,7 @@
     mode: '0755'
     owner: "{{ app_user | default('admin') }}"
     group: "{{ app_user | default('admin') }}"
+  when: install_container_isolation | default(false)
 
 - name: Tạo Dockerfile cho app container
   copy:
@@ -403,4 +404,4 @@
     enabled: yes
     state: started
     daemon_reload: yes
-  when: install_container_isolation | default(false) and container_monitor_enabled | default(true)
+  when: install_container_isolation | default(false) and container_monitor_enabled | default(false)

@@ -1,0 +1,8 @@
+---
+# Handlers for ai-healing
+
+- name: restart ai-healing
+  systemd:
+    name: ai-healing
+    state: restarted
+    daemon_reload: yes

@@ -1,0 +1,5 @@
+---
+# Opt-in only — playbook also gates with install_ai_ops
+install_ai_chatops: false
+chatops_service_enabled: false
+chatops_model: llama2

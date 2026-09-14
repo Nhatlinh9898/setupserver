@@ -1,0 +1,6 @@
+---
+install_ai_healing: false
+ai_healing_enabled: false
+ai_healing_model: llama2
+ai_healing_interval: 60
+ai_healing_auto_enabled: false  # NEVER true unless you accept auto service restarts

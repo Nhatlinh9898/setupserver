@@ -52,7 +52,7 @@ install_ai_security_response: true  # Bật AI Security Response
 ai_security_response_enabled: true  # Bật service
 ai_security_response_model: "llama2"  # Model AI
 ai_security_response_interval: 30  # Kiểm tra mỗi 30 giây
-ai_security_response_auto_enabled: true  # Bật auto-response
+ai_security_response_auto_enabled: false  # opt-in only — true enables auto block/kill
 ai_security_response_admin_ip: "1.2.3.4/32"  # IP admin để SSH khi isolate
 ```
 

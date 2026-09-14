@@ -6,8 +6,8 @@ install_ai_security_response: false
 ai_security_response_enabled: false
 ai_security_response_model: "llama2"
 ai_security_response_interval: 30
-ai_security_response_auto_enabled: true
-ai_security_response_admin_ip: "0.0.0.0/0"
+ai_security_response_auto_enabled: false  # dangerous if true — opt-in only
+ai_security_response_admin_ip: "CHANGE_ME_ADMIN_CIDR"  # e.g. 203.0.113.10/32
 
 # Cấu hình detection thresholds
 failed_login_threshold: 50

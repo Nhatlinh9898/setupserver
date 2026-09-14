@@ -1,0 +1,16 @@
+---
+# Light-touch defaults — all off unless explicitly enabled
+install_ollama: false
+ollama_api_enabled: false
+ollama_api_port: 11434
+ollama_api_bind: "127.0.0.1"  # do not expose publicly by default
+ollama_models:
+  - llama2
+install_python_ml: false
+install_python_llm: false
+install_nodejs_ml: false
+install_stable_diffusion: false
+install_text_generation_webui: false
+install_whisper: false
+install_tts: false
+install_rag_tools: false

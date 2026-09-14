@@ -7,11 +7,11 @@ Wants=network-online.target
 Type=simple
 User={{ app_user | default('admin') }}
 Group={{ app_user | default('admin') }}
-ExecStart=/usr/local/bin/ollama serve --host 0.0.0.0 --port {{ ollama_api_port | default(11434) }}
+ExecStart=/usr/local/bin/ollama serve --host {{ ollama_api_bind | default("127.0.0.1") }} --port {{ ollama_api_port | default(11434) }}
 Restart=always
 RestartSec=5
 Environment=OLLAMA_MODELS=/opt/models/ollama
-Environment=OLLAMA_HOST=0.0.0.0:{{ ollama_api_port | default(11434) }}
+Environment=OLLAMA_HOST={{ ollama_api_bind | default("127.0.0.1") }}:{{ ollama_api_port | default(11434) }}
 
 [Install]
 WantedBy=multi-user.target
