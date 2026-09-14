@@ -57,12 +57,16 @@ Trong `vars.yml`:
 deploy_enabled: true
 deploy_method: git   # hoặc local
 project_path: /opt/apps/my-app
+local_code_path: "./app-code"
+app_name: my-app
+app_port: 3000
+health_check_enabled: false
 git_repository: "https://github.com/YOUR_ORG/YOUR_REPO.git"
 git_branch: main
 mysql_password: "your-real-password"
 ```
 
-Local code: đặt mã nguồn vào `app-code/` rồi `deploy_method: local`.
+Local code: đặt mã nguồn vào `app-code/` rồi `deploy_method: local` (và giữ `local_code_path`).
 
 ```bash
 ansible-playbook -i inventory.ini playbook.yml --tags deploy,dependencies,application -e @vars.yml

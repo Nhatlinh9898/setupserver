@@ -18,6 +18,7 @@ mysql_database: appdb
 mysql_user: appuser
 mysql_password: "CHANGE_ME_STRONG_PASSWORD"  # BẮT BUỘC đổi
 mysql_allow_remote: false  # true chỉ khi app và DB tách server có kiểm soát
+postgresql_allow_remote: false
 postgresql_database: appdb
 postgresql_user: appuser
 postgresql_password: "CHANGE_ME_STRONG_PASSWORD"  # BẮT BUỘC đổi
@@ -40,8 +41,13 @@ allow_ssh_ip: "0.0.0.0/0"  # Nên giới hạn IP nếu có thể
 deploy_enabled: false
 deploy_method: git  # git | local
 project_path: /opt/apps/my-app
+local_code_path: "./app-code"  # dùng khi deploy_method: local
+app_name: my-app
+app_port: 3000
+health_check_enabled: false
 git_repository: "https://github.com/CHANGE_ME/CHANGE_ME.git"
 git_branch: main
+git_force: false  # true chỉ khi chấp nhận ghi đè working tree
 # git_ssh_private_key: |   # chỉ khi repo private
 #   -----BEGIN OPENSSH PRIVATE KEY-----
 #   CHANGE_ME
